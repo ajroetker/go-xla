@@ -22,7 +22,7 @@ var (
 
 	flagPlugin, flagPath *string
 	flagVersion          = flag.String("version", "latest",
-		"In most PJRT this is the Gopjrt release version in https://github.com/gomlx/gopjrt (e.g.: v0.8.4) from"+
+		"In most PJRT this is the Gopjrt release version in https://github.com/gomlx/go-xla (e.g.: v0.8.4) from"+
 			" where to download the plugin. "+
 			"For the CUDA PJRT this is based on the Jax version in https://pypi.org/project/jax/ (e.g.: 0.7.2), "+
 			"which is where it downloads the plugin and Nvidia libraries from. "+

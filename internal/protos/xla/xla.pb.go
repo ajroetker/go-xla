@@ -22,8 +22,8 @@
 package xla
 
 import (
-	hlo "github.com/gomlx/gopjrt/internal/protos/hlo"
-	xla_data "github.com/gomlx/gopjrt/internal/protos/xla_data"
+	hlo "github.com/gomlx/go-xla/internal/protos/hlo"
+	xla_data "github.com/gomlx/go-xla/internal/protos/xla_data"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	anypb "google.golang.org/protobuf/types/known/anypb"

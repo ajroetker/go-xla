@@ -3,7 +3,7 @@ package utils
 import (
 	"fmt"
 
-	"github.com/gomlx/gopjrt/dtypes"
+	"github.com/gomlx/go-xla/pkg/types/dtypes"
 )
 
 func DTypeToStableHLO(dtype dtypes.DType) string {

@@ -1,5 +1,5 @@
 // protoc_xla_protos compiles the .proto from the OpenXLA/XLA sources to subpackages of
-// "github.com/gomlx/gopjrt/internal/protos".
+// "github.com/gomlx/go-xla/internal/protos".
 //
 // It should be executed under the gopjrt/internal/protos directory -- suggested as a go:generate --
 // and it requires XLA_SRC to be set to a cloned github.com/openxla/xla clone.
@@ -24,7 +24,7 @@ import (
 
 const (
 	xlaSrcEnvVar = "XLA_SRC"
-	basePackage  = "github.com/gomlx/gopjrt/internal/protos"
+	basePackage  = "github.com/gomlx/go-xla/internal/protos"
 )
 
 var protos = []string{

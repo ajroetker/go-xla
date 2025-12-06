@@ -49,7 +49,7 @@ type Builder struct {
 // Once you are all set, call Builder.Build and it will return the StableHLO program (or "Module") as a []byte that can
 // be used with PJRT.
 //
-// See github.com/gomlx/gopjrt for a Go API to PJRT.
+// See github.com/gomlx/go-xla for a Go API to PJRT.
 func New(name string) *Builder {
 	return &Builder{
 		name: name,

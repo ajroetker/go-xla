@@ -4,11 +4,12 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/gomlx/gopjrt/pjrt"
-	"github.com/janpfeifer/must"
-	"k8s.io/klog/v2"
 	"os"
 	"strconv"
+
+	"github.com/gomlx/go-xla/pkg/pjrt"
+	"github.com/janpfeifer/must"
+	"k8s.io/klog/v2"
 )
 
 var (
@@ -25,8 +26,8 @@ func main() {
 
 $ exec_hlo -hlo=<serialized_hlo_file_name> <x>
 
-One can generate HLO using the github.com/gomlx/gopjrt/xlabuilder package, or alternatively using Jax,
-see example in https://github.com/gomlx/gopjrt.
+One can generate HLO using the github.com/gomlx/go-xla/xlabuilder package, or alternatively using Jax,
+see example in https://github.com/gomlx/go-xla.
 
 For now this tool only works with programs that take one float32 scalar value in, and outputs another float32
 scalar value.

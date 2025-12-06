@@ -33,7 +33,7 @@ func DarwinValidateVersion(plugin, version string) error {
 	_, err := DarwinGetDownloadURL(plugin, version)
 	if err != nil {
 		return errors.WithMessagef(err, "can't fetch PJRT plugin from Gopjrt version %q, see "+
-			"https://github.com/gomlx/gopjrt/releases for a list of release versions to choose from", version)
+			"https://github.com/gomlx/go-xla/releases for a list of release versions to choose from", version)
 	}
 	return err
 }

@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
-	"github.com/janpfeifer/must"
 	"os"
 	"os/exec"
 	"slices"
 	"text/template"
+
+	"github.com/janpfeifer/must"
 )
 
 const (
@@ -64,8 +65,8 @@ package xlabuilder_test
 import (
 	"fmt"
 	"github.com/stretchr/testify/require"
-	"github.com/gomlx/gopjrt/dtypes"
-	. "github.com/gomlx/gopjrt/xlabuilder"
+	"github.com/gomlx/go-xla/pkg/types/dtypes"
+	. "github.com/gomlx/go-xla/xlabuilder"
 	"testing"
 )
 
@@ -88,12 +89,12 @@ func TestSimpleOps(t *testing.T) {
 	// Binary-comparison op.
 	var result, cmp *Op{{range .}}{{if eq .Type "two_cmp"}}
 	cmp, err = {{.Name}}(x, x)
-	require.NoError(t, err, "Failed to build binary comparison operation {{.Name}}")	
+	require.NoError(t, err, "Failed to build binary comparison operation {{.Name}}")
 	if result == nil {
 		result = cmp
 	} else {
 		result, err = LogicalAnd(result, cmp)
-		require.NoError(t, err, "Failed to build logical And operation when aggregating the result from {{.Name}}")	
+		require.NoError(t, err, "Failed to build logical And operation when aggregating the result from {{.Name}}")
 	}{{end}}{{end}}
 
 	// Other ops not tested above.
@@ -113,7 +114,7 @@ func TestSimpleOps(t *testing.T) {
 
 	result, err = IsFinite(x)
 	require.NoError(t, err, "Failed to build IsFinite operation")
-	require.Equal(t, dtypes.Bool, result.Shape.DType, "IsFinite should return booleans") 
+	require.Equal(t, dtypes.Bool, result.Shape.DType, "IsFinite should return booleans")
 
 	require.NoError(t, err, "Failed to build And operation")
 	i, err = Clz(i)

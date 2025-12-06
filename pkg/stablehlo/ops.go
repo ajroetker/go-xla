@@ -9,8 +9,8 @@ import (
 	"github.com/gomlx/go-xla/internal/optypes"
 	"github.com/gomlx/go-xla/internal/shapeinference"
 	"github.com/gomlx/go-xla/pkg/types"
+	"github.com/gomlx/go-xla/pkg/types/dtypes"
 	"github.com/gomlx/go-xla/pkg/types/shapes"
-	"github.com/gomlx/gopjrt/dtypes"
 	"github.com/pkg/errors"
 )
 

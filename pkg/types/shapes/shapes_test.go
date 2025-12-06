@@ -20,7 +20,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/gomlx/gopjrt/dtypes"
+	"github.com/gomlx/go-xla/pkg/types/dtypes"
 )
 
 func TestCastAsDType(t *testing.T) {

@@ -1,15 +1,15 @@
-package gopjrt
+package tests
 
 import (
 	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/gomlx/go-xla/pkg/pjrt"
 	. "github.com/gomlx/go-xla/pkg/stablehlo"
 	"github.com/gomlx/go-xla/pkg/types"
-	S "github.com/gomlx/go-xla/pkg/types/shapes"
-	D "github.com/gomlx/gopjrt/dtypes"
-	"github.com/gomlx/gopjrt/pjrt"
+	"github.com/gomlx/go-xla/pkg/types/dtypes"
+	"github.com/gomlx/go-xla/pkg/types/shapes"
 )
 
 func TestDotGeneral(t *testing.T) {
@@ -40,12 +40,12 @@ func testDotGeneral(t *testing.T, client *pjrt.Client) {
 		builder := New(t.Name())
 		fn := builder.NewFunction("main")
 		one := must1(fn.ConstantFromScalar(float32(1)))
-		lhs := must1(fn.Iota(S.Make(D.F32, 2*3*1*5), 0))
+		lhs := must1(fn.Iota(shapes.Make(dtypes.F32, 2*3*1*5), 0))
 		lhs = must1(Add(lhs, must1(BroadcastInDim(one, lhs.Shape(), nil))))
-		lhs = must1(Reshape(lhs, S.Make(D.F32, 2, 3, 1, 5)))
-		rhs := must1(fn.Iota(S.Make(D.F32, 5*3*2*4), 0))
+		lhs = must1(Reshape(lhs, shapes.Make(dtypes.F32, 2, 3, 1, 5)))
+		rhs := must1(fn.Iota(shapes.Make(dtypes.F32, 5*3*2*4), 0))
 		rhs = must1(Add(rhs, must1(BroadcastInDim(one, rhs.Shape(), nil))))
-		rhs = must1(Reshape(rhs, S.Make(D.F32, 5, 3, 2, 4)))
+		rhs = must1(Reshape(rhs, shapes.Make(dtypes.F32, 5, 3, 2, 4)))
 		dg := must1(DotGeneral(lhs, []int{1}, []int{3, 0}, rhs, []int{1}, []int{0, 2}).Done())
 		must(fn.Return(dg))
 		program := must1(builder.Build())
@@ -58,17 +58,17 @@ func testDotGeneral(t *testing.T, client *pjrt.Client) {
 		builder := New(t.Name())
 		fn := builder.NewFunction("main")
 		one := must1(fn.ConstantFromScalar(float32(1)))
-		lhs := must1(fn.Iota(S.Make(D.F32, 2*3*1*5), 0))
+		lhs := must1(fn.Iota(shapes.Make(dtypes.F32, 2*3*1*5), 0))
 		lhs = must1(Add(lhs, must1(BroadcastInDim(one, lhs.Shape(), nil))))
-		lhs = must1(Reshape(lhs, S.Make(D.F32, 2, 3, 1, 5)))
-		rhs := must1(fn.Iota(S.Make(D.F32, 5*3*2*4), 0))
+		lhs = must1(Reshape(lhs, shapes.Make(dtypes.F32, 2, 3, 1, 5)))
+		rhs := must1(fn.Iota(shapes.Make(dtypes.F32, 5*3*2*4), 0))
 		rhs = must1(Add(rhs, must1(BroadcastInDim(one, rhs.Shape(), nil))))
-		rhs = must1(Reshape(rhs, S.Make(D.F32, 5, 3, 2, 4)))
+		rhs = must1(Reshape(rhs, shapes.Make(dtypes.F32, 5, 3, 2, 4)))
 		dg := must1(DotGeneral(lhs, []int{1}, []int{3, 0}, rhs, []int{1}, []int{0, 2}).
 			Algorithm(&types.DotGeneralAlgorithm{
-				LhsPrecisionType:           types.FloatPrecisionType{DType: D.F32},
-				RhsPrecisionType:           types.FloatPrecisionType{DType: D.F32},
-				AccumulationType:           types.FloatPrecisionType{DType: D.F32},
+				LhsPrecisionType:           types.FloatPrecisionType{DType: dtypes.F32},
+				RhsPrecisionType:           types.FloatPrecisionType{DType: dtypes.F32},
+				AccumulationType:           types.FloatPrecisionType{DType: dtypes.F32},
 				LhsComponentCount:          1,
 				RhsComponentCount:          1,
 				NumPrimitiveOperations:     1,
@@ -82,22 +82,22 @@ func testDotGeneral(t *testing.T, client *pjrt.Client) {
 		requireBuffersEqual(t, wantResult, outputs)
 	})
 
-	if strings.Index(strings.ToUpper(client.Plugin().String()), "CUDA") != -1 {
+	if strings.Contains(strings.ToUpper(client.Plugin().String()), "CUDA") {
 		t.Run("BatchContractingCross(tf32)", func(t *testing.T) {
 			builder := New(t.Name())
 			fn := builder.NewFunction("main")
 			one := must1(fn.ConstantFromScalar(float32(1)))
-			lhs := must1(fn.Iota(S.Make(D.F32, 2*3*1*5), 0))
+			lhs := must1(fn.Iota(shapes.Make(dtypes.F32, 2*3*1*5), 0))
 			lhs = must1(Add(lhs, must1(BroadcastInDim(one, lhs.Shape(), nil))))
-			lhs = must1(Reshape(lhs, S.Make(D.F32, 2, 3, 1, 5)))
-			rhs := must1(fn.Iota(S.Make(D.F32, 5*3*2*4), 0))
+			lhs = must1(Reshape(lhs, shapes.Make(dtypes.F32, 2, 3, 1, 5)))
+			rhs := must1(fn.Iota(shapes.Make(dtypes.F32, 5*3*2*4), 0))
 			rhs = must1(Add(rhs, must1(BroadcastInDim(one, rhs.Shape(), nil))))
-			rhs = must1(Reshape(rhs, S.Make(D.F32, 5, 3, 2, 4)))
+			rhs = must1(Reshape(rhs, shapes.Make(dtypes.F32, 5, 3, 2, 4)))
 			dg := must1(DotGeneral(lhs, []int{1}, []int{3, 0}, rhs, []int{1}, []int{0, 2}).
 				Algorithm(&types.DotGeneralAlgorithm{
 					LhsPrecisionType:           types.FloatPrecisionType{TF32: true},
 					RhsPrecisionType:           types.FloatPrecisionType{TF32: true},
-					AccumulationType:           types.FloatPrecisionType{DType: D.F32},
+					AccumulationType:           types.FloatPrecisionType{DType: dtypes.F32},
 					LhsComponentCount:          1,
 					RhsComponentCount:          1,
 					NumPrimitiveOperations:     1,
@@ -111,5 +111,4 @@ func testDotGeneral(t *testing.T, client *pjrt.Client) {
 			requireBuffersEqual(t, wantResult, outputs)
 		})
 	}
-
 }

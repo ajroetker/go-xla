@@ -1,4 +1,4 @@
-module github.com/gomlx/gopjrt/cmd/gopjrt_installer
+module github.com/gomlx/go-xla/cmd/gopjrt_installer
 
 go 1.24.0
 

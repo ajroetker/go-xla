@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/gomlx/go-xla/internal/utils"
-	"github.com/gomlx/gopjrt/dtypes"
+	"github.com/gomlx/go-xla/pkg/types/dtypes"
 )
 
 // ComparisonType enum defined for the Compare op.

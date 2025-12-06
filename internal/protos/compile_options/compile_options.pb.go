@@ -7,9 +7,9 @@
 package compile_options
 
 import (
-	device_description "github.com/gomlx/gopjrt/internal/protos/device_description"
-	xla "github.com/gomlx/gopjrt/internal/protos/xla"
-	xla_data "github.com/gomlx/gopjrt/internal/protos/xla_data"
+	device_description "github.com/gomlx/go-xla/internal/protos/device_description"
+	xla "github.com/gomlx/go-xla/internal/protos/xla"
+	xla_data "github.com/gomlx/go-xla/internal/protos/xla_data"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"

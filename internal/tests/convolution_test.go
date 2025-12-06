@@ -1,14 +1,14 @@
-package gopjrt
+package tests
 
 import (
 	"fmt"
 	"testing"
 
+	"github.com/gomlx/go-xla/pkg/pjrt"
 	. "github.com/gomlx/go-xla/pkg/stablehlo"
 	"github.com/gomlx/go-xla/pkg/types"
+	"github.com/gomlx/go-xla/pkg/types/dtypes"
 	"github.com/gomlx/go-xla/pkg/types/shapes"
-	"github.com/gomlx/gopjrt/dtypes"
-	"github.com/gomlx/gopjrt/pjrt"
 )
 
 func TestConvolution(t *testing.T) {

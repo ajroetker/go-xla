@@ -3,10 +3,10 @@ OpenXLA Go API Bindings: StableHLO and PJRT
 
 # [XLA](https://openxla.org/)'s [StableHLO](https://openxla.org/stablehlo) Builder API for Go
 
-[![GoDev](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white)](https://pkg.go.dev/github.com/gomlx/stablehlo?tab=doc)
-[![GitHub](https://img.shields.io/github/license/gomlx/stablehlo)](https://github.com/gomlx/stablehlo/blob/main/LICENSE)
-[![Go Report Card](https://goreportcard.com/badge/github.com/gomlx/stablehlo)](https://goreportcard.com/report/github.com/gomlx/stablehlo)
-[![TestStatus](https://github.com/gomlx/stablehlo/actions/workflows/tests.yaml/badge.svg)](https://github.com/gomlx/gomlx/actions/workflows/tests.yaml)
+[![GoDev](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white)](https://pkg.go.dev/github.com/gomlx/go-xla/pkg/stablehlo?tab=doc)
+[![GitHub](https://img.shields.io/github/license/gomlx/stablehlo)](https://github.com/gomlx/go-xla/pkg/stablehlo/blob/main/LICENSE)
+[![Go Report Card](https://goreportcard.com/badge/github.com/gomlx/go-xla/pkg/stablehlo)](https://goreportcard.com/report/github.com/gomlx/go-xla/pkg/stablehlo)
+[![TestStatus](https://github.com/gomlx/go-xla/pkg/stablehlo/actions/workflows/tests.yaml/badge.svg)](https://github.com/gomlx/gomlx/actions/workflows/tests.yaml)
 [![Slack](https://img.shields.io/badge/Slack-GoMLX-purple.svg?logo=slack)](https://app.slack.com/client/T029RQSE6/C08TX33BX6U)
 [![Sponsor gomlx](https://img.shields.io/badge/Sponsor-gomlx-white?logo=github&style=flat-square)](https://github.com/sponsors/gomlx)
 
@@ -32,12 +32,12 @@ See:
 * [StableHLO specification](https://openxla.org/stablehlo/spec)
 * [GoMLX](https://github.com/gomlx/gomlx): a Go ML framework that supports an XLA (StableHLO+PJRT) backend to
   efficiently run (or train) ML programs.
-* [GoPJRT](https://github.com/gomlx/gopjrt): a Go wrapper for PJRT C API, capable of executing StableHLO programs,
+* [GoPJRT](https://github.com/gomlx/go-xla): a Go wrapper for PJRT C API, capable of executing StableHLO programs,
   for a lower level API.
 
 ## Examples
 
-The tests in [`tests/gopjrt/gopjrt_test.go`](https://github.com/gomlx/stablehlo/blob/main/tests/gopjrt/gopjrt_test.go) 
+The tests in [`tests/gopjrt/gopjrt_test.go`](https://github.com/gomlx/go-xla/pkg/stablehlo/blob/main/tests/gopjrt/gopjrt_test.go) 
 should serve as simple examples of each operation.
 
 Notice that `stablehlo` is a low-level API, usually used to build higher-level frameworks (an ML framework like GoMLX, 
@@ -45,21 +45,21 @@ maybe an image manipulation library that uses accelerators like GPUs, some scien
 verbose and requires boilerplate (error handling) everywhere. 
 It sacrifices ergonomics for performance, consistency and stability. 
 
-See another example of `stablehlo` and GoPJRT (to execute the generate StableHLO program) in [Mandelbrot mandelbrot.ipynb notebook](https://github.com/gomlx/gopjrt/blob/main/examples/mandelbrot.ipynb).
+See another example of `stablehlo` and GoPJRT (to execute the generate StableHLO program) in [Mandelbrot mandelbrot.ipynb notebook](https://github.com/gomlx/go-xla/blob/main/examples/mandelbrot.ipynb).
 It includes some sample StableHLO code, if you are curious.
 
-<a href="https://github.com/gomlx/gopjrt/blob/main/examples/mandelbrot.ipynb">
-<img src="https://github.com/gomlx/gopjrt/assets/7460115/d7100980-e731-438d-961e-711f04d4425e" style="width:400px; height:240px"/>
+<a href="https://github.com/gomlx/go-xla/blob/main/examples/mandelbrot.ipynb">
+<img src="https://github.com/gomlx/go-xla/assets/7460115/d7100980-e731-438d-961e-711f04d4425e" style="width:400px; height:240px"/>
 </a>
 
 ## Status of Operations
 
-Most operations are already implemented. See the [list of supported operations](https://github.com/gomlx/stablehlo/blob/main/internal/optypes/optypes.go#L91)
+Most operations are already implemented. See the [list of supported operations](https://github.com/gomlx/go-xla/pkg/stablehlo/blob/main/internal/optypes/optypes.go#L91)
 (the ones not implemented are in the bottom of the list).
 
 If you need a specific operation, please open an issue.
 
-See also the [CHANGELOG](https://github.com/gomlx/stablehlo/blob/main/docs/CHANGELOG.md).
+See also the [CHANGELOG](https://github.com/gomlx/go-xla/pkg/stablehlo/blob/main/docs/CHANGELOG.md).
 
 ## Dynamic Shapes Support: unbounded dynamism using shape polymorphism only!
 
@@ -76,7 +76,7 @@ Other types of dynamism:
 * _Data-dependent dynamism_: for data-dependent dynamic ops. For instance, if a function returns the indices of all 
   non-zero elements. **There is little support for this, so we are not support it yet.**
 
-## StableHLO replaces [GoPJRT's XlaBuilder](https://github.com/gomlx/gopjrt/tree/main/xlabuilder)
+## StableHLO replaces [GoPJRT's XlaBuilder](https://github.com/gomlx/go-xla/tree/main/xlabuilder)
 
 With the following advantages:
 

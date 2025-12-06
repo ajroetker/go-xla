@@ -1,10 +1,10 @@
 # GoPJRT ([Installing](#installing))
 
-[![GoDev](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white)](https://pkg.go.dev/github.com/gomlx/gopjrt?tab=doc)
+[![GoDev](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white)](https://pkg.go.dev/github.com/gomlx/go-xla?tab=doc)
 [![GitHub](https://img.shields.io/github/license/gomlx/gopjrt)](https://github.com/Kwynto/gosession/blob/master/LICENSE)
-[![Go Report Card](https://goreportcard.com/badge/github.com/gomlx/gopjrt)](https://goreportcard.com/report/github.com/gomlx/gopjrt)
-[![TestStatus](https://github.com/gomlx/gopjrt/actions/workflows/linux_tests.yaml/badge.svg)](https://github.com/gomlx/gopjrt/actions/workflows/linux_tests.yaml)
-[![TestStatus](https://github.com/gomlx/gopjrt/actions/workflows/darwin_tests.yaml/badge.svg)](https://github.com/gomlx/gopjrt/actions/workflows/darwin_tests.yaml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/gomlx/go-xla)](https://goreportcard.com/report/github.com/gomlx/go-xla)
+[![TestStatus](https://github.com/gomlx/go-xla/actions/workflows/linux_tests.yaml/badge.svg)](https://github.com/gomlx/go-xla/actions/workflows/linux_tests.yaml)
+[![TestStatus](https://github.com/gomlx/go-xla/actions/workflows/darwin_tests.yaml/badge.svg)](https://github.com/gomlx/go-xla/actions/workflows/darwin_tests.yaml)
 ![Coverage](https://img.shields.io/badge/Coverage-70.1%25-yellow)
 [![Slack](https://img.shields.io/badge/Slack-GoMLX-purple.svg?logo=slack)](https://app.slack.com/client/T029RQSE6/C08TX33BX6U)
 
@@ -18,7 +18,7 @@ computation, game AIs, etc.
 And because [Jax](https://docs.jax.dev/en/latest/), [TensorFlow](https://www.tensorflow.org/) and 
 [optionally PyTorch](https://pytorch.org/xla/release/2.3/index.html) run on XLA, it is possible to run Jax functions in Go with GoPJRT, 
 and probably TensorFlow and PyTorch as well.
-See [example 2 in xlabuilder/README.md](https://github.com/gomlx/gopjrt/blob/main/xlabuilder/README.md#example-2).
+See [example 2 in xlabuilder/README.md](https://github.com/gomlx/go-xla/blob/main/xlabuilder/README.md#example-2).
 
 GoPJRT aims to be minimalist and robust: it provides well-maintained, extensible Go wrappers for
 [OpenXLA PJRT](https://openxla.org/#pjrt). 
@@ -44,16 +44,16 @@ wants to "accelerate."
 It must be provided in an IR (intermediate representation) that is understood by the PJRT plugin. 
 A few ways to create the computation graph IR:
 
-1. [github.com/gomlx/stablehlo](https://github.com/gomlx/stablehlo?tab=readme-ov-file): [StableHLO](https://openxla.org/stablehlo)
+1. [github.com/gomlx/go-xla/pkg/stablehlo](https://github.com/gomlx/go-xla/pkg/stablehlo?tab=readme-ov-file): [StableHLO](https://openxla.org/stablehlo)
 is the current preferred IR language for XLA PJRT. This library (co-developed with **GoPJRT**) is a Go API for building
 computation graphs in StableHLO that can be directly fed to *GoPJRT*. See examples below.
-2. [github.com/gomlx/gopjtr/xlabuilder](https://github.com/gomlx/gopjrt/tree/main/xlabuilder):
+2. [github.com/gomlx/gopjtr/xlabuilder](https://github.com/gomlx/go-xla/tree/main/xlabuilder):
 This is a wrapper Go library to an XLA C++ library that generates the previous IR (called MHLO).
 It is still supported by XLA and by **GoPJRT**, but it is being deprecated.
 3. Using Jax, Tensorflow, PyTorchXLA: Jax/Tensorflow/PyTorchXLA can output the StableHLO of JIT compiled functions  
 that can be fed directly to PJRT (as text). We don't detail this here, but the authors did this a lot during
-development of **GoPJRT**, [github.com/gomlx/stablehlo](https://github.com/gomlx/stablehlo?tab=readme-ov-file) and 
-[github.com/gomlx/gopjtr/xlabuilder](https://github.com/gomlx/gopjrt/tree/main/xlabuilder) for testing.
+development of **GoPJRT**, [github.com/gomlx/go-xla/pkg/stablehlo](https://github.com/gomlx/go-xla/pkg/stablehlo?tab=readme-ov-file) and 
+[github.com/gomlx/gopjtr/xlabuilder](https://github.com/gomlx/go-xla/tree/main/xlabuilder) for testing.
 
 > [!NOTE]
 > The IR (intermediary representation) that PJRT plugins accept are text, but not human-friendly to read/write.
@@ -86,17 +86,17 @@ outputs[0].Destroy() // Don't wait for the GC, destroy the buffer immediately.
 ...
 ```
 
-2. See [mandelbrot.ipynb notebook](https://github.com/gomlx/gopjrt/blob/main/examples/mandelbrot.ipynb) 
+2. See [mandelbrot.ipynb notebook](https://github.com/gomlx/go-xla/blob/main/examples/mandelbrot.ipynb) 
 with an example building the computation for a Mandelbrot image using `stablehlo`, 
 it includes a sample of the computation's StableHLO IR.
 
-<a href="https://github.com/gomlx/gopjrt/blob/main/examples/mandelbrot.ipynb">
-<img alt="Mandelbrot fractal figure" src="https://github.com/gomlx/gopjrt/assets/7460115/d7100980-e731-438d-961e-711f04d4425e" style="width:400px; height:240px"/>
+<a href="https://github.com/gomlx/go-xla/blob/main/examples/mandelbrot.ipynb">
+<img alt="Mandelbrot fractal figure" src="https://github.com/gomlx/go-xla/assets/7460115/d7100980-e731-438d-961e-711f04d4425e" style="width:400px; height:240px"/>
 </a>
 
 ## How to use it?
 
-The main package is [`github.com/gomlx/gopjrt/pjrt`](https://pkg.go.dev/github.com/gomlx/gopjrt/pjrt), and we'll refer to it as simply `pjrt`.
+The main package is [`github.com/gomlx/go-xla/pkg/pjrt`](https://pkg.go.dev/github.com/gomlx/go-xla/pkg/pjrt), and we'll refer to it as simply `pjrt`.
 
 The `pjrt` package includes the following main concepts:
 
@@ -113,10 +113,10 @@ PJRT plugins by default are loaded after the program is started (using `dlopen`)
 But there is also the option to pre-link the CPU PJRT plugin in your program -- option only works for Linux/amd64 for now. 
 For that, import (as `_`) one of the following packages:
 
-- `github.com/gomlx/gopjrt/pjrt/cpu/dynamic`: pre-link the CPU PJRT dynamically (as opposed to load it after the
+- `github.com/gomlx/go-xla/pkg/pjrt/cpu/dynamic`: pre-link the CPU PJRT dynamically (as opposed to load it after the
   Go program starts). It is fast to build, but it still requires deploying the PJRT plugin along with your
   program. Not commonly used, but a possibility.
-- `github.com/gomlx/gopjrt/pjrt/cpu/static`: (**experimental**) pre-link the CPU PJRT statically, so you don't need to 
+- `github.com/gomlx/go-xla/pkg/pjrt/cpu/static`: (**experimental**) pre-link the CPU PJRT statically, so you don't need to 
   distribute a CPU PJRT with your program. But it's slower to build, potentially taking a few extra (annoying) seconds
   (static libraries are much slower to link). 
   As of version v0.9.1 this is no longer built by default – you can still install the Linux CPU PJRT from release 
@@ -137,7 +137,7 @@ GoPJRT requires one or more "PJRT plugin" modules to JIT-compile and execute you
 To facilitate installing them, it provides an interactive and self-explanatory installer:
 
 ```bash
-go run github.com/gomlx/gopjrt/cmd/gopjrt_installer@latest
+go run github.com/gomlx/go-xla/cmd/gopjrt_installer@latest
 ```
 
 > [!NOTE]
@@ -147,12 +147,12 @@ go run github.com/gomlx/gopjrt/cmd/gopjrt_installer@latest
 > hardwre to test/maintain them. 
 > If you feel like contributing or donating hardware/cloud credits, please contact me.
   
-There are also some older bash install scripts under [`github.com/gomlx/gopjrt/cmd`](https://github.com/gomlx/gopjrt/tree/main/cmd),
+There are also some older bash install scripts under [`github.com/gomlx/go-xla/cmd`](https://github.com/gomlx/go-xla/tree/main/cmd),
 but they are deprecated and eventually will be removed in a few versions. Let me know if you need them.
 
 ## PJRT Plugins for other devices or platforms.
 
-See [docs/devel.md](https://github.com/gomlx/gopjrt/blob/main/docs/devel.md#pjrt-plugins) on hints on how to compile a plugin 
+See [docs/devel.md](https://github.com/gomlx/go-xla/blob/main/docs/devel.md#pjrt-plugins) on hints on how to compile a plugin 
 from OpenXLA/XLA sources.
 
 Also, see [this blog post](https://opensource.googleblog.com/2024/03/pjrt-plugin-to-accelerate-machine-learning.html) with the link and references to the Intel and Apple hardware plugins. 
@@ -192,7 +192,7 @@ Environment variables that help control or debug how GoPJRT works:
 * `XLA_DEBUG_OPTIONS`: If set, it is parsed as a `DebugOptions` proto that
   is passed during the JIT-compilation (`Client.Compile()`) of a computation graph.
   It is not documented how it works in PJRT (e.g., I observed a great slow down when this is set,
-  even if set to the default values), but [the proto has some documentation](https://github.com/gomlx/gopjrt/blob/main/protos/xla.proto#L40).
+  even if set to the default values), but [the proto has some documentation](https://github.com/gomlx/go-xla/blob/main/protos/xla.proto#L40).
 * `GOPJRT_INSTALL_DIR` and `GOPJRT_NOSUDO`: used by the installation scripts, see "Installing" section above.
 
 ## Links to documentation
@@ -224,7 +224,7 @@ This project uses the following components from the [OpenXLA project](https://op
 
 ## Licensing:
 
-GoPJRT is [licensed under the Apache 2.0 license](https://github.com/gomlx/gopjrt/blob/main/LICENSE).
+GoPJRT is [licensed under the Apache 2.0 license](https://github.com/gomlx/go-xla/blob/main/LICENSE).
 
 The [OpenXLA project](https://openxla.org/), including `pjrt_c_api.h` file, the CPU and CUDA plugins, is [licensed under the Apache 2.0 license](https://github.com/openxla/xla/blob/main/LICENSE).
 
