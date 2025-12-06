@@ -98,7 +98,7 @@ with an example building the computation for a Mandelbrot image using `stablehlo
 it includes a sample of the computation's StableHLO IR.
 
 <a href="https://github.com/gomlx/go-xla/blob/main/examples/mandelbrot.ipynb">
-<img alt="Mandelbrot fractal figure" src="https://github.com/gomlx/go-xla/assets/7460115/d7100980-e731-438d-961e-711f04d4425e" style="width:400px; height:240px"/>
+<img alt="Mandelbrot fractal figure" src="https://github.com/user-attachments/assets/6bf4d0bb-efe6-4b2e-8e8a-af2e34dbb63b" style="width:400px; height:240px"/>
 </a>
 
 ## How to use it?
