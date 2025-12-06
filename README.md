@@ -1,5 +1,4 @@
 # go-xla: OpenXLA APIs bindings for Go
-![Coverage](https://img.shields.io/badge/Coverage-70.1%25-yellow)
 
 [![GoDev](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white)](https://pkg.go.dev/github.com/gomlx/go-xla?tab=doc)
 [![GitHub](https://img.shields.io/github/license/gomlx/go-xla)](https://github.com/gomlx/go-xla/blob/master/LICENSE)
