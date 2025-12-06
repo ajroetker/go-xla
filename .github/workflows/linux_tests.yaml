@@ -45,10 +45,6 @@ jobs:
           sudo ln -sf /usr/local/lib/libpjrt* /usr/lib/x86_64-linux-gnu/
           sudo ln -sf /usr/local/include/gomlx /usr/include/
 
-      - name: PreTest
-        run: |
-          go test . -test.v
-
       - name: Test
         # Notice xlabuilder is not installed in CI -- it requires manual installation of the older version of the library.
         run: |
