@@ -87,11 +87,16 @@ func main() {
 		}
 		err := Interact(os.Args[0], questions)
 		if err != nil {
-			if err == ErrUserAborted {
+			switch err {
+			case ErrUserAborted:
 				fmt.Println("Installation aborted.")
 				return
+			case ErrDryRun:
+				fmt.Println("Installation not confirmed.")
+				return
+			default:
+				klog.Fatalf("Failed on error: %+v", err)
 			}
-			klog.Fatalf("Failed on error: %+v", err)
 		}
 	}
 

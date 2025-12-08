@@ -21,6 +21,9 @@ var (
 	// ErrUserAborted is returned when the user cancels the interaction (e.g., via Ctrl+C or Esc on the first question).
 	ErrUserAborted = errors.New("interaction aborted by user")
 
+	// ErrDryRun is returned when the user chooses to not run the installation, after the options are selected.
+	ErrDryRun = errors.New("selection made, but not installing yet")
+
 	// Special value to trigger the custom input prompt.
 	customValueOption = "--- Type a custom value ---"
 )
@@ -198,7 +201,7 @@ func Interact(command string, questions []Question) error {
 	}
 
 	if !confirm {
-		return errors.New("Execution not confirmed.")
+		return ErrDryRun
 	}
 	return nil
 }
