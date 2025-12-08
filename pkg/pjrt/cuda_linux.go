@@ -111,7 +111,6 @@ func cudaSetCUDADir(nvidiaPath string) {
 		XLAFlagsEnv = "XLA_FLAGS"
 	)
 
-	fmt.Printf("> nvidiaPath=%q\n", nvidiaPath)
 	existingXLAFlags := os.Getenv(XLAFlagsEnv)
 	var newValue string
 	if existingXLAFlags != "" && !strings.Contains(existingXLAFlags, "--xla_gpu_cuda_data_dir") {
@@ -124,7 +123,7 @@ func cudaSetCUDADir(nvidiaPath string) {
 	if newValue != "" {
 		err := os.Setenv(XLAFlagsEnv, newValue)
 
-		klog.Infof("Set %q environment variable to %q", XLAFlagsEnv, newValue)
+		klog.V(1).Infof("CUDA directory: need to set environment variable %q to %q", XLAFlagsEnv, newValue)
 		if err != nil {
 			klog.Warningf("Failed to set %q environment variable to %q: %v", XLAFlagsEnv, newValue, err)
 		}
