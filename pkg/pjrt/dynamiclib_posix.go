@@ -68,7 +68,8 @@ func osDefaultLibraryPaths() []string {
 
 	// Local (XDG) path.
 	if homeDir, err := os.UserHomeDir(); err == nil {
-		paths = append(paths, filepath.Join(homeDir, ".local", "lib", "go-xla"))
+		goXLAPath := filepath.Join(homeDir, ".local", "lib", "go-xla")
+		paths = append(paths, goXLAPath, filepath.Join(goXLAPath, "nvidia"))
 		// Previous version ("goprjt" compatible)
 		paths = append(paths, filepath.Join(homeDir, ".local", "lib", "gomlx", "pjrt"))
 	} else {
@@ -76,7 +77,7 @@ func osDefaultLibraryPaths() []string {
 	}
 
 	// Standard system directory, included by default.
-	paths = append(paths, "/usr/local/lib/go-xla")
+	paths = append(paths, "/usr/local/lib/go-xla", "/usr/local/lib/go-xla/nvidia")
 	paths = append(paths, "/usr/local/lib/gomlx/pjrt") // Previous version ("goprjt" compatible)
 
 	// Prefix LD_LIBRARY_PATH to non-absolute entries.

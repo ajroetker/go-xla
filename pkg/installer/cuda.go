@@ -60,11 +60,10 @@ func CudaInstall(plugin, version, installPath string, useCache bool) error {
 // is translated to the actual version.
 func CudaInstallPJRT(plugin, version, installPath string, useCache bool) (string, error) {
 	// Make the directory that will hold the PJRT files.
-	pjrtDir := filepath.Join(installPath, "/lib/go-xla")
-	pjrtOutputPath := path.Join(pjrtDir, "pjrt_c_api_cuda_plugin.so")
-	if err := os.MkdirAll(pjrtDir, 0755); err != nil {
-		return "", errors.Wrapf(err, "failed to create PJRT install directory in %s", pjrtDir)
+	if err := os.MkdirAll(installPath, 0755); err != nil {
+		return "", errors.Wrapf(err, "failed to create PJRT install directory in %s", installPath)
 	}
+	pjrtOutputPath := path.Join(installPath, "pjrt_c_api_cuda_plugin.so")
 
 	// Get CUDA PJRT wheel from pypi.org
 	info, packageName, err := CudaGetPJRTPipInfo(plugin)
@@ -98,7 +97,7 @@ func CudaInstallPJRT(plugin, version, installPath string, useCache bool) (string
 	}
 
 	sha256hash := releaseInfo.Digests["sha256"]
-	downloadedJaxPJRTWHL, fileCached, err := DownloadURLToTemp(releaseInfo.URL, fmt.Sprintf("gopjrt_%s_%s.whl", packageName, version), sha256hash, useCache)
+	downloadedJaxPJRTWHL, fileCached, err := DownloadURLToTemp(releaseInfo.URL, fmt.Sprintf("go-xla_%s_%s.whl", packageName, version), sha256hash, useCache)
 	if err != nil {
 		return "", errors.Wrap(err, "failed to download cuda PJRT wheel")
 	}
@@ -161,7 +160,7 @@ func CudaGetPJRTPipInfo(plugin string) (*PipPackageInfo, string, error) {
 // CudaInstallNvidiaLibraries installs the required NVIDIA libraries for CUDA.
 func CudaInstallNvidiaLibraries(plugin, version, installPath string, useCache bool) error {
 	// Remove any previous version of the nvidia libraries and recreate it.
-	nvidiaLibsDir := filepath.Join(installPath, "/lib/go-xla/nvidia")
+	nvidiaLibsDir := filepath.Join(installPath, "nvidia")
 	if err := os.RemoveAll(nvidiaLibsDir); err != nil {
 		return errors.Wrapf(err, "failed to remove existing nvidia libraries directory %s", nvidiaLibsDir)
 	}
@@ -218,13 +217,18 @@ func CudaInstallNvidiaLibraries(plugin, version, installPath string, useCache bo
 	}
 
 	// Link libraries that Nvidia is not able to find from the SDK path set.
+	libsPath := path.Dir(installPath)
+	fmt.Printf("libsPath: %q\n", libsPath)
 	switch plugin {
 	case "cuda13":
-		libsPath := filepath.Join(installPath, "lib")
+		// Source of the symlink relative to the `lib` path.
 		libCublasPath := "./go-xla/nvidia/cu13/lib"
 		for _, srcName := range []string{"libcublasLt.so.13", "libcublas.so.13"} {
 			dstPath := filepath.Join(libsPath, filepath.Base(srcName))
 			srcPath := filepath.Join(libCublasPath, srcName)
+			if err := os.Remove(dstPath); err != nil && !os.IsNotExist(err) {
+				return errors.Wrapf(err, "failed to remove existing symlink to %s in %s", srcPath, dstPath)
+			}
 			if err := os.Symlink(srcPath, dstPath); err != nil {
 				return errors.Wrapf(err, "failed to create symbolic link to %s in %s", srcPath, dstPath)
 			}
@@ -261,7 +265,7 @@ func cudaInstallNvidiaLibrary(nvidiaLibsDir string, dep PipDependency, useCache 
 
 	// Download the ".whl" file (zip file format) for the selected version of the nvidia library..
 	sha256hash := selectedReleaseInfo.Digests["sha256"]
-	downloadedWHL, whlIsCached, err := DownloadURLToTemp(selectedReleaseInfo.URL, fmt.Sprintf("gopjrt_%s_%s.whl", dep.Package, selectedVersion), sha256hash, useCache)
+	downloadedWHL, whlIsCached, err := DownloadURLToTemp(selectedReleaseInfo.URL, fmt.Sprintf("go-xla_%s_%s.whl", dep.Package, selectedVersion), sha256hash, useCache)
 	if err != nil {
 		return errors.Wrapf(err, "failed to download %s wheel", dep.Package)
 	}

@@ -118,7 +118,7 @@ func CPUInstall(plugin, version, installPath string, useCache bool) error {
 			if err := os.Remove(linkPath); err != nil && !os.IsNotExist(err) {
 				return errors.Wrap(err, "failed to remove existing link")
 			}
-			if err := os.Symlink(file, linkPath); err != nil {
+			if err := os.Symlink(baseFile, linkPath); err != nil {
 				return errors.Wrap(err, "failed to create symlink")
 			}
 			fmt.Printf("    Linked to %s\n", linkPath)

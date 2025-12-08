@@ -87,23 +87,22 @@ func cudaPluginCheckDrivers(name string) {
 			plugin.Path(), nvidiaPath, plugin.Path(), nvidiaPath)
 		return
 	}
-	cudaSetCUDADir(nvidiaPath)
+	// cudaSetCUDADir(nvidiaPath)
+	cudaSetCUDADir("/home/janpf/.local/lib/go-xla/nvidia")
 }
 
 // cudaNVidiaPath returns the path to the nvidia libraries. If they are not found in the same directory as the plugin.
 // It returns an empty string if the nvidia libraries are found.
 func cudaNVidiaPath(plugin *Plugin) (nvidiaExpectedPath string, found bool) {
-	// Search in ./nvidia
-	nvidiaExpectedPath = path.Join(path.Dir(plugin.Path()), "nvidia")
+	// Search in ../nvidia/...
+	// Notice becuase of the hardocded variable RPATH in the PJRT plugin, the installation MUST be
+	// in ../nvidia relative to the CUDA PJRT plugin file (`pjrt_c_api_cuda_plugin.so`)
+	nvidiaExpectedPath = path.Join(path.Dir(path.Dir(plugin.Path())), "nvidia")
 	fi, err := os.Stat(nvidiaExpectedPath)
 	if err == nil && fi.IsDir() {
 		return nvidiaExpectedPath, true
 	}
-
-	// Search in ../nvidia/...
-	nvidiaExpectedPath = path.Join(path.Dir(path.Dir(plugin.Path())), "nvidia")
-	fi, err = os.Stat(nvidiaExpectedPath)
-	return nvidiaExpectedPath, err == nil && fi.IsDir()
+	return "", false
 }
 
 // cudaSetCUDADir as a flag set into the environment variable XLA_FLAGS.
@@ -112,6 +111,7 @@ func cudaSetCUDADir(nvidiaPath string) {
 		XLAFlagsEnv = "XLA_FLAGS"
 	)
 
+	fmt.Printf("> nvidiaPath=%q\n", nvidiaPath)
 	existingXLAFlags := os.Getenv(XLAFlagsEnv)
 	var newValue string
 	if existingXLAFlags != "" && !strings.Contains(existingXLAFlags, "--xla_gpu_cuda_data_dir") {
@@ -123,6 +123,8 @@ func cudaSetCUDADir(nvidiaPath string) {
 	}
 	if newValue != "" {
 		err := os.Setenv(XLAFlagsEnv, newValue)
+
+		klog.Infof("Set %q environment variable to %q", XLAFlagsEnv, newValue)
 		if err != nil {
 			klog.Warningf("Failed to set %q environment variable to %q: %v", XLAFlagsEnv, newValue, err)
 		}
