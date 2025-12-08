@@ -7,7 +7,6 @@ import (
 	"maps"
 	"os"
 	"path"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -29,12 +28,7 @@ func TPUInstall(plugin, version, installPath string, useCache bool) error {
 	if err := os.MkdirAll(installPath, 0755); err != nil {
 		return errors.Wrapf(err, "failed to create install directory in %s", installPath)
 	}
-
-	pjrtDir := filepath.Join(installPath, "/lib/gomlx/pjrt")
-	pjrtOutputPath := path.Join(pjrtDir, "pjrt_c_api_tpu_plugin.so")
-	if err := os.MkdirAll(pjrtDir, 0755); err != nil {
-		return errors.Wrapf(err, "failed to create PJRT install directory in %s", pjrtDir)
-	}
+	pjrtOutputPath := path.Join(installPath, "pjrt_c_api_tpu_plugin.so")
 
 	// Get CUDA PJRT wheel from pypi.org
 	info, packageName, err := TPUGetPJRTPipInfo(plugin)
