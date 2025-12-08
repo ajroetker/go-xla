@@ -9,9 +9,9 @@ import (
 func init() {
 	for _, plugin := range []string{"darwin"} {
 		pluginInstallers[plugin] = func(plugin, version, installPath string) error {
-			return installer.DarwinInstall(plugin, version, installPath, *flagCache)
+			return installer.CPUInstall(plugin, version, installPath, *flagCache)
 		}
-		pluginValidators[plugin] = installer.DarwinValidateVersion
+		pluginValidators[plugin] = installer.CPUValidateVersion
 	}
 	pluginValues = append(pluginValues, "darwin")
 	pluginDescriptions = append(pluginDescriptions, "CPU PJRT (darwin/arm64)")

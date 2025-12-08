@@ -9,9 +9,9 @@ import (
 func init() {
 	for _, plugin := range []string{"linux", installer.AmazonLinux} {
 		pluginInstallers[plugin] = func(plugin, version, installPath string) error {
-			return installer.LinuxInstall(plugin, version, installPath, *flagCache)
+			return installer.CPUInstall(plugin, version, installPath, *flagCache)
 		}
-		pluginValidators[plugin] = installer.LinuxValidateVersion
+		pluginValidators[plugin] = installer.CPUValidateVersion
 	}
 	pluginValues = append(pluginValues, "linux", installer.AmazonLinux)
 	pluginDescriptions = append(pluginDescriptions,

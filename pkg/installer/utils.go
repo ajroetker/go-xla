@@ -1,12 +1,45 @@
 package installer
 
 import (
+	"os"
 	"os/user"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/pkg/errors"
+	"k8s.io/klog/v2"
 )
+
+// ReportError prints an error if it is not nil, but otherwise does nothing.
+func ReportError(err error) {
+	if err != nil {
+		klog.Warningf("Error: %v", err)
+	}
+}
+
+// GetCachePath finds and prepares the cache directory for gopjrt.
+//
+// It uses os.UserCacheDir() for portability:
+//
+// - Linux: $XDG_CACHE_HOME or $HOME/.cache
+// - Darwin: $HOME/Library/Caches
+// - Windows: %LocalAppData% (e.g., C:\Users\user\AppData\Local)
+func GetCachePath(fileName string) (filePath string, cached bool, err error) {
+	baseCacheDir, err := os.UserCacheDir()
+	if err != nil {
+		return "", false, errors.Wrap(err, "failed to find user cache directory")
+	}
+	cacheDir := filepath.Join(baseCacheDir, "go-xla")
+	if err = os.MkdirAll(cacheDir, 0755); err != nil {
+		return "", false, errors.Wrapf(err, "failed to create cache directory %s", cacheDir)
+	}
+	filePath = filepath.Join(cacheDir, fileName)
+	if stat, err := os.Stat(filePath); err == nil {
+		cached = stat.Mode().IsRegular()
+	}
+	return
+}
 
 // ReplaceTildeInDir replaces "~" in a directory path with the user's home directory.
 // Returns dir if it doesn't start with "~".

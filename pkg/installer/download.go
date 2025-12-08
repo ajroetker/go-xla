@@ -19,35 +19,7 @@ import (
 	"k8s.io/klog/v2"
 )
 
-// ReportError prints an error if it is not nil, but otherwise does nothing.
-func ReportError(err error) {
-	if err != nil {
-		klog.Warningf("Error: %v", err)
-	}
-}
-
-// GetCachePath finds and prepares the cache directory for gopjrt.
-//
-// It uses os.UserCacheDir() for portability:
-//
-// - Linux: $XDG_CACHE_HOME or $HOME/.cache
-// - Darwin: $HOME/Library/Caches
-// - Windows: %LocalAppData% (e.g., C:\Users\user\AppData\Local)
-func GetCachePath(fileName string) (filePath string, cached bool, err error) {
-	baseCacheDir, err := os.UserCacheDir()
-	if err != nil {
-		return "", false, errors.Wrap(err, "failed to find user cache directory")
-	}
-	cacheDir := filepath.Join(baseCacheDir, "gopjrt")
-	if err = os.MkdirAll(cacheDir, 0755); err != nil {
-		return "", false, errors.Wrapf(err, "failed to create cache directory %s", cacheDir)
-	}
-	filePath = filepath.Join(cacheDir, fileName)
-	if stat, err := os.Stat(filePath); err == nil {
-		cached = stat.Mode().IsRegular()
-	}
-	return
-}
+const BinaryCPUReleasesRepo = "gomlx/pjrt-cpu-binaries"
 
 // DownloadURLToTemp downloads a file from a given URL to a temporary file.
 //
@@ -61,13 +33,15 @@ func GetCachePath(fileName string) (filePath string, cached bool, err error) {
 func DownloadURLToTemp(url, fileName, wantSHA256 string, useCache bool) (filePath string, cached bool, err error) {
 	// Download the asset to a temporary file
 	var downloadedFile *os.File
-
+	var renameTo string
 	if useCache {
 		filePath, cached, err = GetCachePath(fileName)
 		if err != nil {
 			return "", false, err
 		}
 		if !cached {
+			renameTo = filePath
+			filePath = filePath + ".tmp" // Download to temporary file first.
 			downloadedFile, err = os.Create(filePath)
 			if err != nil {
 				return "", false, errors.Wrapf(err, "failed to create cache file %s", filePath)
@@ -159,6 +133,16 @@ func DownloadURLToTemp(url, fileName, wantSHA256 string, useCache bool) (filePat
 			return "", false, errors.Errorf("SHA256 hash mismatch for %s: expected %q, got %q", filePath, wantSHA256, actualHash)
 		}
 		verifiedStatus = " (hash checked)"
+	}
+
+	// If downloaded to a temporary file, rename to final destination:
+	if renameTo != "" {
+		_ = os.Remove(renameTo)
+		if err := os.Rename(filePath, renameTo); err != nil {
+			return "", false, errors.Wrapf(err, "failed to rename %s to %s", filePath, renameTo)
+		}
+		filePath = renameTo
+		renameTo = ""
 	}
 
 	if cached {
@@ -290,9 +274,9 @@ func extractZipFile(f *zip.File, outputPath string) error {
 	return nil
 }
 
-// GitHubGetLatestVersion returns the latest version tag from the gomlx/gopjrt repository.
+// GitHubGetLatestVersion returns the latest version tag from the gomlx/pjrt-cpu-binaries repository.
 func GitHubGetLatestVersion() (string, error) {
-	const latestURL = "https://api.github.com/repos/gomlx/gopjrt/releases/latest"
+	latestURL := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", BinaryCPUReleasesRepo)
 	retries := 0
 	const maxRetries = 2
 retry:
@@ -349,10 +333,11 @@ retry:
 	}
 }
 
-// GitHubDownloadReleaseAssets downloads the list of assets available for the given Gopjrt release version.
-func GitHubDownloadReleaseAssets(version string) ([]string, error) {
+// GitHubDownloadReleaseAssets downloads the list of assets available for the given repository/release version.
+// E.g.: repo = "gomlx/pjrt-cpu-binaries", version = "v0.83.1"
+func GitHubDownloadReleaseAssets(repo string, version string) ([]string, error) {
 	// Construct release URL based on the version -- "latest" is not supported at this point.
-	releaseURL := fmt.Sprintf("https://api.github.com/repos/gomlx/gopjrt/releases/tags/%s", version)
+	releaseURL := fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", repo, version)
 
 	// Make HTTP request with optional authorization header
 	req, err := http.NewRequest("GET", releaseURL, nil)
@@ -367,6 +352,14 @@ func GitHubDownloadReleaseAssets(version string) ([]string, error) {
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to fetch release data from %q", releaseURL)
+	}
+
+	// Check response status code
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, errors.Errorf("version %q not found", version)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.Errorf("unexpected status code %d", resp.StatusCode)
 	}
 
 	// Read response body
@@ -395,6 +388,40 @@ func GitHubDownloadReleaseAssets(version string) ([]string, error) {
 	}
 
 	return urls, nil
+}
+
+func GitHubGetVersions(repo string) ([]string, error) {
+	resp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/%s/releases", repo))
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to fetch versions from GitHub")
+	}
+	defer func() { ReportError(resp.Body.Close()) }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.Errorf("unexpected status code %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read response body")
+	}
+
+	// Parse JSON response
+	var releases []struct {
+		Name string `json:"name"`
+		Tag  string `json:"tag_name"`
+	}
+	if err := json.Unmarshal(body, &releases); err != nil {
+		return nil, errors.Wrapf(err, "failed to parse JSON response")
+	}
+
+	// Extract version names
+	var versions []string
+	for _, release := range releases {
+		versions = append(versions, release.Tag)
+	}
+
+	return versions, nil
 }
 
 // Untar takes a path to a tar/gzip file and an output directory.
@@ -521,4 +548,3 @@ func Untar(tarballPath, outputDirPath string) ([]string, error) {
 	}
 	return extractedFiles, nil
 }
-
