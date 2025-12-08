@@ -22,21 +22,21 @@ import (
 // - Downloaded files sha256 match the ones on pypi.org
 func CudaInstall(plugin, version, installPath string, useCache bool) error {
 	// Create the target directory.
-	installPath = ReplaceTildeInDir(installPath)
+	var err error
+	installPath, err = ReplaceTildeInDir(installPath)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(installPath, 0755); err != nil {
 		return errors.Wrapf(err, "failed to create install directory in %s", installPath)
 	}
-
-	var err error
 	version, err = CudaInstallPJRT(plugin, version, installPath, useCache)
 	if err != nil {
 		return err
 	}
-
 	if err := CudaInstallNvidiaLibraries(plugin, version, installPath, useCache); err != nil {
 		return err
 	}
-
 	cudaVersion := "13"
 	if plugin == "cuda12" {
 		cudaVersion = "12"
@@ -272,4 +272,3 @@ func cudaInstallNvidiaLibrary(nvidiaLibsDir string, dep PipDependency, useCache 
 	fmt.Printf("- Installed %s@%s\n", dep.Package, selectedVersion)
 	return nil
 }
-

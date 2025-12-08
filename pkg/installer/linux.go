@@ -70,7 +70,10 @@ func LinuxInstall(plugin, version, installPath string, useCache bool) error {
 	assetName := filepath.Base(assetURL)
 
 	// Create the target directory.
-	installPath = ReplaceTildeInDir(installPath)
+	installPath, err = ReplaceTildeInDir(installPath)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(installPath, 0755); err != nil {
 		return errors.Wrap(err, "failed to create install directory")
 	}
