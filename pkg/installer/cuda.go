@@ -56,7 +56,7 @@ func CudaInstall(plugin, version, installPath string, useCache bool) error {
 // is translated to the actual version.
 func CudaInstallPJRT(plugin, version, installPath string, useCache bool) (string, error) {
 	// Make the directory that will hold the PJRT files.
-	pjrtDir := filepath.Join(installPath, "/lib/gomlx/pjrt")
+	pjrtDir := filepath.Join(installPath, "/lib/go-xla")
 	pjrtOutputPath := path.Join(pjrtDir, "pjrt_c_api_cuda_plugin.so")
 	if err := os.MkdirAll(pjrtDir, 0755); err != nil {
 		return "", errors.Wrapf(err, "failed to create PJRT install directory in %s", pjrtDir)
@@ -157,7 +157,7 @@ func CudaGetPJRTPipInfo(plugin string) (*PipPackageInfo, string, error) {
 // CudaInstallNvidiaLibraries installs the required NVIDIA libraries for CUDA.
 func CudaInstallNvidiaLibraries(plugin, version, installPath string, useCache bool) error {
 	// Remove any previous version of the nvidia libraries and recreate it.
-	nvidiaLibsDir := filepath.Join(installPath, "/lib/gomlx/nvidia")
+	nvidiaLibsDir := filepath.Join(installPath, "/lib/go-xla/nvidia")
 	if err := os.RemoveAll(nvidiaLibsDir); err != nil {
 		return errors.Wrapf(err, "failed to remove existing nvidia libraries directory %s", nvidiaLibsDir)
 	}
@@ -217,7 +217,7 @@ func CudaInstallNvidiaLibraries(plugin, version, installPath string, useCache bo
 	switch plugin {
 	case "cuda13":
 		libsPath := filepath.Join(installPath, "lib")
-		libCublasPath := "./gomlx/nvidia/cu13/lib"
+		libCublasPath := "./go-xla/nvidia/cu13/lib"
 		for _, srcName := range []string{"libcublasLt.so.13", "libcublas.so.13"} {
 			dstPath := filepath.Join(libsPath, filepath.Base(srcName))
 			srcPath := filepath.Join(libCublasPath, srcName)

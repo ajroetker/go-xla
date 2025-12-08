@@ -76,13 +76,16 @@ func main() {
 		}
 		err := Interact(os.Args[0], questions)
 		if err != nil {
-			klog.Fatal(err)
+			klog.Fatalf("Failed on error: %+v", err)
 		}
 	}
 
 	pluginName := *flagPlugin
 	version := *flagVersion
-	installPath := installer.ReplaceTildeInDir(*flagPath)
+	installPath, err := installer.ReplaceTildeInDir(*flagPath)
+	if err != nil {
+		klog.Fatalf("Failed on error: %+v", err)
+	}
 	fmt.Printf("Installing PJRT plugin %s@%s to %s:\n", pluginName, version, installPath)
 
 	pluginInstaller, ok := pluginInstallers[pluginName]
@@ -90,7 +93,7 @@ func main() {
 		klog.Fatalf("Installer for plugin %q not found", pluginName)
 	}
 	if err := pluginInstaller(pluginName, version, installPath); err != nil {
-		klog.Fatalf("%+v", err)
+		klog.Fatalf("Failed on error: %+v", err)
 	}
 }
 
@@ -104,9 +107,12 @@ func ValidateVersion() error {
 }
 
 func ValidatePathPermission() error {
-	installPath := installer.ReplaceTildeInDir(*flagPath)
+	installPath, err := installer.ReplaceTildeInDir(*flagPath)
+	if err != nil {
+		return err
+	}
 	dir := installPath
-	_, err := os.Stat(dir)
+	_, err = os.Stat(dir)
 	if err != nil {
 		// If the directory doesn't exist, try parent directories
 		parent := installPath

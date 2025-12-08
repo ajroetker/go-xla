@@ -16,5 +16,5 @@ func init() {
 	pluginValues = append(pluginValues, "darwin")
 	pluginDescriptions = append(pluginDescriptions, "CPU PJRT (darwin/arm64)")
 	pluginPriorities = append(pluginPriorities, 3)
-	installPathSuggestions = append(installPathSuggestions, "/usr/local/", "~/Library/Application Support/GoMLX")
+	installPathSuggestions = append(installPathSuggestions, "/usr/local/lib/go-xla", "~/Library/Application Support/go-xla")
 }

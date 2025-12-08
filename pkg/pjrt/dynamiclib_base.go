@@ -51,8 +51,8 @@ var (
 	// pluginSearchPaths is set during initialization by the per-architecture implementations (dynamiclib_<arch>.go files).
 	//
 	// Plugins are searched in the PJRT_PLUGIN_LIBRARY_PATH directory -- or directories, if it is a ":" separated list.
-	// If it is not set it will search in "/usr/local/lib/gomlx/pjrt" and the standard libraries directories of the
-	// system (in linux in LD_LIBRARY_CONFIG and /etc/ld.so.conf file).
+	// If it is not set it will search in "~/.local/lib/go-xla" and "/usr/local/lib/go-xla" (or equivalent for other OSes),
+	// and the standard libraries directories of the system (in linux in LD_LIBRARY_CONFIG and /etc/ld.so.conf file).
 	pluginSearchPaths []string
 
 	// loadedPlugins caches the plugins already loaded. Protected by muPlugins.
@@ -160,9 +160,12 @@ func pathToPluginName(pPath string) string {
 // AvailablePlugins searches for available plugins in the standard directories and returns a map from their name to their paths.
 //
 // Plugins are searched in the PJRT_PLUGIN_LIBRARY_PATH directory -- or directories, if it is a ":" separated list.
-// If it is not set it will search in "/usr/local/lib/gomlx/pjrt" and the standard libraries directories of the
-// system (in linux in LD_LIBRARY_PATH and /etc/ld.so.conf file, in Darwin it also searches in DYLD_LIBRARY_PATH) in
-// that order.
+// If it is not set it will search in the local user "${HOME}/.local/lib/go-xla", the system "/usr/local/lib/go-xla",
+// and the standard libraries directories of the system (in linux in LD_LIBRARY_PATH and /etc/ld.so.conf file,
+//
+//	in Darwin it also searches in DYLD_LIBRARY_PATH) in that order.
+//
+// (Or equivalent directories for different OSes).
 //
 // If there are plugins with the same name but different versions in different directories, it respects the order of the
 // directories given by PJRT_PLUGIN_LIBRARY_PATH or by the system.

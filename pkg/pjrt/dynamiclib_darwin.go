@@ -38,24 +38,27 @@ import (
 )
 
 // osDefaultLibraryPaths is called during initialization to set the default search paths.
-// It always includes the local user default "${HOME}/Library/Application Support/GoMLX/PJRT" and
-// the system default "/usr/local/lib/gomlx/pjrt", plus the contents of the LD_LIBRARY_PATH and DYLD_LIBRARY_PATH.
+// It always includes the local user default "${HOME}/Library/Application Support/go-xla" and
+// the system default "/usr/local/lib/go-xla", plus the contents of the LD_LIBRARY_PATH and DYLD_LIBRARY_PATH.
 func osDefaultLibraryPaths() []string {
 	var paths []string
 
 	// Local default path.
 	if homeDir, err := os.UserHomeDir(); err == nil {
+		paths = append(paths, filepath.Join(homeDir, "Library", "Application Support", "go-xla"))
+		// Previous version ("goprjt" compatible)
 		paths = append(paths, filepath.Join(homeDir, "Library", "Application Support", "GoMLX", "PJRT"))
 	} else {
 		klog.Errorf("Couldn't get user's home directory -- it won't be searched for PJRT plugins: %v", err)
 	}
 
 	// System default path.
-	paths = append(paths, "/usr/local/lib/gomlx/pjrt")
+	paths = append(paths, "/usr/local/lib/go-xla")
+	paths = append(paths, "/usr/local/lib/gomlx/pjrt") // Previous version ("goprjt" compatible)
 
 	// Standard environment variables.
 	for _, varName := range []string{"DYLD_LIBRARY_PATH", "LD_LIBRARY_PATH"} {
-		for _, ldPath := range strings.Split(os.Getenv(varName), string(os.PathListSeparator)) {
+		for ldPath := range strings.SplitSeq(os.Getenv(varName), string(os.PathListSeparator)) {
 			if ldPath == "" || !path.IsAbs(ldPath) {
 				// No empty or relative paths.
 				continue
