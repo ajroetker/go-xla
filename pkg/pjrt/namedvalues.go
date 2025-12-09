@@ -8,8 +8,9 @@ package pjrt
 import "C"
 import (
 	"fmt"
-	"github.com/pkg/errors"
 	"unsafe"
+
+	"github.com/pkg/errors"
 )
 
 // NamedValuesMap map names to any of the supported named values types defined by PJRT_NamedValue_Type.
@@ -85,7 +86,7 @@ func (m NamedValuesMap) mallocArrayPJRT_NamedValue() (*C.PJRT_NamedValue, C.size
 			cValue._type = C.PJRT_NamedValue_Type(PJRT_NamedValue_kBool)
 			splitValue.bool_value = C.bool(value)
 		default:
-			destroyPJRT_NamedValue(rawData)
+			destroyPJRT_NamedValue(rawData, C.size_t(ii))
 			return nil, 0, errors.Errorf("option (NamedValueMap) %q was set to unsupported type %T (value=%v). "+
 				"Only values of type string, int64, []int64, float32 and bool are supported.",
 				key, value, value)
@@ -98,9 +99,20 @@ func (m NamedValuesMap) mallocArrayPJRT_NamedValue() (*C.PJRT_NamedValue, C.size
 	return rawData, C.size_t(len(m)), nil
 }
 
-func destroyPJRT_NamedValue(cValue *C.PJRT_NamedValue) {
-	// TODO: destroy union fields, if array.
-	if cValue != nil {
-		cFree(cValue)
+func destroyPJRT_NamedValue(cNamedValues *C.PJRT_NamedValue, count C.size_t) {
+	if cNamedValues == nil {
+		return
 	}
+	sliceData := cDataToSlice[C.PJRT_NamedValue](unsafe.Pointer(cNamedValues), int(count))
+	for ii := range int(count) {
+		cValue := &sliceData[ii]
+		splitValue := C.Extract_PJRT_NamedValue_Union(cValue)
+		switch cValue._type {
+		case C.PJRT_NamedValue_Type(PJRT_NamedValue_kInt64List):
+			cFree(splitValue.int64_array_value)
+		case C.PJRT_NamedValue_Type(PJRT_NamedValue_kString):
+			cFree(splitValue.string_value)
+		}
+	}
+	cFree(cNamedValues)
 }
