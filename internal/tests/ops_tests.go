@@ -20,10 +20,6 @@ import (
 
 var flagPluginNames = flag.String("plugins", "cpu", "List (|-separated) of PJRT plugin names or full paths. E.g. \"cpu|cuda\"")
 
-func init() {
-	klog.InitFlags(nil)
-}
-
 func must(err error) {
 	if err != nil {
 		klog.Errorf("%+v", err)
@@ -105,6 +101,10 @@ func iterateClientsAndTest(t *testing.T, testFn func(*testing.T, *pjrt.Client)) 
 			})
 		} else {
 			testFn(t, client)
+		}
+		err := client.Destroy()
+		if err != nil {
+			t.Fatalf("failed to destroy the client %q", pluginName)
 		}
 	}
 }

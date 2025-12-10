@@ -101,6 +101,8 @@ func newCompileConfig(client *Client) (cc *CompileConfig) {
 	return cc
 }
 
+var compileConfigOnlyOnce = errors.Errorf("the CompileConfig can only be used once")
+
 // Done triggers the compilation of the program. If the compilation succeeds a LoadedExecutable is returned, otherwise
 // an error is returned.
 func (cc *CompileConfig) Done() (*LoadedExecutable, error) {
@@ -110,6 +112,7 @@ func (cc *CompileConfig) Done() (*LoadedExecutable, error) {
 	if cc.err != nil {
 		return nil, cc.err
 	}
+	cc.err = compileConfigOnlyOnce
 
 	// Make sure things are cleaned up before leaving:
 	defer func() {
@@ -158,11 +161,11 @@ func (cc *CompileConfig) Done() (*LoadedExecutable, error) {
 
 	// Get options and pin it.
 	binOptions, err := proto.Marshal(cc.options)
-	if klog.V(1).Enabled() {
-		klog.Infof("CompileOptions: {\n%s}\n", prototext.Format(cc.options))
-	}
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed to marshal the CompileOptionsProto to be passed to the PJRT plugin")
+	}
+	if klog.V(1).Enabled() {
+		klog.Infof("CompileOptions: {\n%s}\n", prototext.Format(cc.options))
 	}
 	pinner.Pin(unsafe.SliceData(binOptions))
 
@@ -179,6 +182,7 @@ func (cc *CompileConfig) Done() (*LoadedExecutable, error) {
 	exec.deviceAssignment = cc.deviceAssignment
 	exec.isPortable = cc.options.CompilePortableExecutable
 	klog.V(2).Infof("pjrtClientCompile() succeeded")
+	cc.options = nil // We can make sure this is freed.
 	return exec, nil
 }
 
@@ -339,6 +343,9 @@ func (cc *CompileConfig) WithSPMD(numReplicas int) *CompileConfig {
 //
 // [1] https://openxla.org/shardy/
 func (cc *CompileConfig) WithShardy(numDevices int) *CompileConfig {
+	if cc.err != nil {
+		return cc
+	}
 	cc.options.ExecutableBuildOptions.UseShardyPartitioner = true
 	cc.options.ExecutableBuildOptions.UseSpmdPartitioning = true
 	cc.options.ExecutableBuildOptions.NumReplicas = 1
@@ -373,10 +380,23 @@ func (cc *CompileConfig) WithShardy(numDevices int) *CompileConfig {
 //
 // It returns itself (CompileConfig) to allow cascading configuration calls.
 func (cc *CompileConfig) WithDeviceAssignment(assignment []int) *CompileConfig {
-	cc.options.CompilePortableExecutable = false
+	if cc.err != nil {
+		return cc
+	}
 	cc.deviceAssignment = assignment
+	if assignment == nil {
+		// Release corresponding options configuration.
+		cc.options.ExecutableBuildOptions.DeviceAssignment = nil
+		return cc
+	}
+	cc.options.CompilePortableExecutable = false
 	numReplicas := int(cc.options.ExecutableBuildOptions.NumReplicas)
 	numPartitions := int(cc.options.ExecutableBuildOptions.NumPartitions)
+	if len(assignment) != numReplicas*numPartitions {
+		cc.err = errors.Errorf("with %d replicas and %d partitions WithDeviceAssignment requires %d devices, got %d",
+			numReplicas, numPartitions, numReplicas*numPartitions, len(assignment))
+		return cc
+	}
 	klog.V(1).Infof("Device assignment for %d replicas and %d partitions: %v", numReplicas, numPartitions, assignment)
 	cc.deviceAssignment = assignment
 	assignmentProto := cc.options.ExecutableBuildOptions.DeviceAssignment
@@ -399,6 +419,9 @@ func (cc *CompileConfig) WithDeviceAssignment(assignment []int) *CompileConfig {
 }
 
 func (cc *CompileConfig) setDefaultDeviceAssignment() {
+	if cc.err != nil {
+		return
+	}
 	numReplicas := int(cc.options.ExecutableBuildOptions.NumReplicas)
 	numPartitions := int(cc.options.ExecutableBuildOptions.NumPartitions)
 	assignment, err := cc.client.DefaultDeviceAssignment(numReplicas, numPartitions)

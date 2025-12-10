@@ -9,6 +9,9 @@ venv
 go.work
 go.work.sum
 *.test
+heaptrack.*
+mem*.prof
+leaks*.txt
 
 # Jupyter tmp files
 .ipynb_checkpoints
