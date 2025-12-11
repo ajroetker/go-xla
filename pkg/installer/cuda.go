@@ -50,12 +50,15 @@ func init() {
 // if not yet installed, and there is an actual Nvidia GPU installed.
 //
 // It uses HasNvidiaGPU to see if there is an actual Nvidia GPU installed.
-func CudaAutoInstall(installPath string, useCache bool, verbosity VerbosityLevel) error {
+//
+// goxlaInstallPath is expected to be a "lib/go-xla" directory, under which the nvidia/ subdirectory will be (is already)
+// created, and the CUDA PJRT plugin is installed.
+func CudaAutoInstall(goxlaInstallPath string, useCache bool, verbosity VerbosityLevel) error {
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
 		// Only supported on Linux/amd64.
 		return nil
 	}
-	pjrtPluginPath := path.Join(installPath, "nvidia", "pjrt_c_api_cuda_plugin.so")
+	pjrtPluginPath := path.Join(goxlaInstallPath, "nvidia", "pjrt_c_api_cuda_plugin.so")
 	_, err := os.Stat(pjrtPluginPath)
 	if err == nil {
 		// Already installed.
@@ -65,7 +68,7 @@ func CudaAutoInstall(installPath string, useCache bool, verbosity VerbosityLevel
 		// No need to install anything.
 		return nil
 	}
-	return CudaInstall("cuda13", "latest", installPath, useCache, verbosity)
+	return CudaInstall("cuda13", "latest", goxlaInstallPath, useCache, verbosity)
 }
 
 // CudaInstall installs the cuda PJRT from the Jax PIP packages, using pypi.org distributed files.

@@ -7,11 +7,55 @@ import (
 	"maps"
 	"os"
 	"path"
+	"runtime"
 	"slices"
 	"strings"
 
+	"sync"
+
 	"github.com/pkg/errors"
 )
+
+// HasTPU checks if a TPU is available on the system.
+// This uses sync.OnceValue for efficient repeated calls.
+var HasTPU = sync.OnceValue(func() bool {
+	// Typical file path for libtpu presence. This is a heuristic.
+	if _, err := os.Stat("/lib/libtpu.so"); err == nil {
+		return true
+	}
+	if _, err := os.Stat("/usr/lib/libtpu.so"); err == nil {
+		return true
+	}
+	if _, err := os.Stat("/usr/local/lib/libtpu.so"); err == nil {
+		return true
+	}
+	// TPU detection can be expanded as needed.
+	return false
+})
+
+func init() {
+	autoInstallers["tpu"] = TPUAutoInstall
+}
+
+const TPUPJRTPluginName = "pjrt_c_api_tpu_plugin.so"
+
+// TPUAutoInstall installs the TPU PJRT if it is available on the system.
+// goxlaInstallPath is expected to be a "lib/go-xla" directory, under which the PJRT plugin is installed.
+func TPUAutoInstall(goxlaInstallPath string, useCache bool, verbosity VerbosityLevel) error {
+	// Only support Linux/amd64 for TPU installation.
+	if runtime.GOOS != "linux" {
+		return nil
+	}
+	pjrtPluginPath := path.Join(goxlaInstallPath, TPUPJRTPluginName)
+	if _, err := os.Stat(pjrtPluginPath); err == nil {
+		// Already installed.
+		return nil
+	}
+	if !HasTPU() {
+		return nil
+	}
+	return TPUInstall("tpu", "latest", goxlaInstallPath, useCache, verbosity)
+}
 
 // TPUInstall installs the TPU PJRT from the "libtpu" PIP packages, using pypi.org distributed files.
 //
@@ -28,7 +72,7 @@ func TPUInstall(plugin, version, installPath string, useCache bool, verbosity Ve
 	if err := os.MkdirAll(installPath, 0755); err != nil {
 		return errors.Wrapf(err, "failed to create install directory in %s", installPath)
 	}
-	pjrtOutputPath := path.Join(installPath, "pjrt_c_api_tpu_plugin.so")
+	pjrtOutputPath := path.Join(installPath, TPUPJRTPluginName)
 
 	// Get CUDA PJRT wheel from pypi.org
 	info, packageName, err := TPUGetPJRTPipInfo(plugin)

@@ -18,15 +18,16 @@ func init() {
 }
 
 // CPUAutoInstall installs the latest version of the CPU PJRT if not yet installed.
-func CPUAutoInstall(installPath string, useCache bool, verbosity VerbosityLevel) error {
+// goxlaInstallPath is expected to be a "lib/go-xla" directory, under which the PJRT plugin is installed.
+func CPUAutoInstall(goxlaInstallPath string, useCache bool, verbosity VerbosityLevel) error {
 	version := pjrt.DefaultCPUVersion
-	pjrtPluginPath := path.Join(installPath, fmt.Sprintf("pjrt_c_api_cpu_%s_plugin.so", version))
+	pjrtPluginPath := path.Join(goxlaInstallPath, fmt.Sprintf("pjrt_c_api_cpu_%s_plugin.so", version))
 	_, err := os.Stat(pjrtPluginPath)
 	if err == nil {
 		// Already installed.
 		return nil
 	}
-	return CPUInstall("linux", version, installPath, useCache, verbosity)
+	return CPUInstall("linux", version, goxlaInstallPath, useCache, verbosity)
 }
 
 // CPUValidateVersion checks whether the linux version selected by "-version" exists.

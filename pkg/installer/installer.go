@@ -60,10 +60,10 @@ func AutoInstall(installPath string, useCache bool, verbosity VerbosityLevel) er
 			return errors.Errorf("auto-install not supported on platform %s/%s", runtime.GOOS, runtime.GOARCH)
 		}
 	}
-	installPath = filepath.Join(installPath, "go-xla")
+	goxlaInstallPath := filepath.Join(installPath, "go-xla")
 	var firstErr error
 	for installerName, installer := range autoInstallers {
-		if err := installer(installPath, useCache, verbosity); err != nil {
+		if err := installer(goxlaInstallPath, useCache, verbosity); err != nil {
 			if err != nil {
 				err = errors.WithMessagef(err, "failed to auto-install %q", installerName)
 				if firstErr == nil {
