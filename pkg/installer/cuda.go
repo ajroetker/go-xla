@@ -6,13 +6,40 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/pkg/errors"
+	"k8s.io/klog/v2"
 )
+
+// HasNvidiaGPU tries to guess if there is an actual Nvidia GPU installed (as opposed to only the drivers/PJRT
+// file installed, but no actual hardware).
+// It does that by checking for the presence of the device files in /dev/nvidia*.
+var HasNvidiaGPU = sync.OnceValue[bool](func() bool {
+	matches, err := filepath.Glob("/dev/nvidia*")
+	if err != nil {
+		klog.Errorf("Failed to figure out if there is an Nvidia GPU installed while searching for files matching \"/dev/nvidia*\": %v", err)
+	} else if len(matches) > 0 {
+		return true
+	}
+
+	// Execute the nvidia-smi command if present
+	_, lookErr := exec.LookPath("nvidia-smi")
+	if lookErr != nil {
+		return false
+	}
+	cmd := exec.Command("nvidia-smi")
+	output, cmdErr := cmd.CombinedOutput()
+	if cmdErr != nil {
+		return false
+	}
+	return strings.Contains(string(output), "NVIDIA-SMI")
+})
 
 // CudaInstall installs the cuda PJRT from the Jax PIP packages, using pypi.org distributed files.
 //

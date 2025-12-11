@@ -16,10 +16,10 @@ import (
 
 // This file includes the required hacks to support Nvidia's CUDA based PJRT plugins.
 
-// isCuda tries to guess that the plugin named is associated with Nvidia Cuda, to apply the corresponding hacks.
+// isCuda tries to guess that the plugin named is associated with Nvidia CUDA, to apply the corresponding hacks.
 func isCuda(name string) bool {
-	return strings.Index(strings.ToUpper(name), "CUDA") != -1 ||
-		strings.Index(strings.ToUpper(name), "NVIDIA") != -1
+	return strings.Contains(strings.ToUpper(name), "CUDA") ||
+		strings.Contains(strings.ToUpper(name), "NVIDIA")
 }
 
 // hasNvidiaGPU tries to guess if there is an actual Nvidia GPU installed (as opposed to only the drivers/PJRT
@@ -31,25 +31,32 @@ var hasNvidiaGPU = sync.OnceValue[bool](func() bool {
 		klog.Errorf("Failed to figure out if there is an Nvidia GPU installed while searching for files matching \"/dev/nvidia*\": %v", err)
 	} else if len(matches) > 0 {
 		return true
-	} else {
-		klog.Infof("No NVidia devices found matching \"/dev/nvidia*\", checking nvidia-smi command instead.")
 	}
+	klog.Infof("No Nvidia devices found matching \"/dev/nvidia*\", checking nvidia-smi command instead.")
 
 	// Execute the nvidia-smi command if present
 	_, lookErr := exec.LookPath("nvidia-smi")
-	if lookErr == nil {
-		cmd := exec.Command("nvidia-smi")
-		output, cmdErr := cmd.CombinedOutput()
-		if cmdErr == nil {
-			if strings.Contains(string(output), "NVIDIA-SMI") {
-				return true
-			}
-		}
+	if lookErr != nil {
+		klog.Infof("nvidia-smi command not found: %v", lookErr)
+		klog.Infof("Assuming there are no GPU cards installed in the system. " +
+			"To force the attempt to use the \"cuda\" PJRT, use its absolute path.")
+		return false
 	}
-
-	klog.Infof("nvidia-smi command did not succeed, assuming there are no GPU cards installed in the system. " +
-		"To force the attempt to use the \"cuda\" PJRT, use its absolute path.")
-	return false
+	cmd := exec.Command("nvidia-smi")
+	output, cmdErr := cmd.CombinedOutput()
+	if cmdErr != nil {
+		klog.Infof("nvidia-smi failed to execute: %v", cmdErr)
+		klog.Infof("Assuming there are no GPU cards installed in the system. " +
+			"To force the attempt to use the \"cuda\" PJRT, use its absolute path.")
+		return false
+	}
+	if !strings.Contains(string(output), "NVIDIA-SMI") {
+		klog.Infof("nvidia-smi seems to not have found a GPU device: \n%s\n", string(output))
+		klog.Infof("Assuming there are no GPU cards installed in the system. " +
+			"To force the attempt to use the \"cuda\" PJRT, use its absolute path.")
+		return false
+	}
+	return true
 })
 
 // cudaPluginCheckDrivers issues a warning on cuda plugins if it cannot find the corresponding nvidia library files.
