@@ -3,8 +3,12 @@ package installer
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
+	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/gomlx/go-xla/pkg/pjrt"
@@ -27,7 +31,53 @@ func CPUAutoInstall(goxlaInstallPath string, useCache bool, verbosity VerbosityL
 		// Already installed.
 		return nil
 	}
-	return CPUInstall("linux", version, goxlaInstallPath, useCache, verbosity)
+
+	switch runtime.GOOS {
+	case "darwin":
+		if runtime.GOARCH != "arm64" {
+			// Only support arm64 on Darwin, nothing to auto-install for other architectures.
+			return nil
+		}
+		return CPUInstall("darwin", version, goxlaInstallPath, useCache, verbosity)
+	case "linux":
+		if runtime.GOARCH != "amd64" {
+			// Only support amd64 on Linux, nothing to auto-install for other architectures.
+			return nil
+		}
+		platform := "linux"
+		// Detect if we need to use amazonlinux binaries for older glibc systems.
+		major, minor, err := detectGlibcVersion()
+		if err != nil {
+			return errors.WithMessage(err, "failed to detect glibc version")
+		}
+		if err == nil && major == 2 && minor < 42 {
+			platform = AmazonLinux
+		}
+		return CPUInstall(platform, version, goxlaInstallPath, useCache, verbosity)
+	default:
+		// Not supported for other OSes yet.
+		return nil
+	}
+}
+
+var glibcVersionRegex = regexp.MustCompile(`^ldd\s+\(.*\)\s+(\d+)\.(\d+)$`)
+
+// detectGlibcVersion detects the version of the glibc library installed on the system.
+func detectGlibcVersion() (major int, minor int, err error) {
+	lddBytes, lddErr := exec.Command("ldd", "--version").CombinedOutput()
+	if lddErr != nil {
+		return 0, 0, errors.Wrap(lddErr, "failed to run ldd --version")
+	}
+	lines := strings.Split(string(lddBytes), "\n")
+	for _, line := range lines {
+		matches := glibcVersionRegex.FindStringSubmatch(line)
+		if len(matches) == 3 {
+			major, _ = strconv.Atoi(matches[1])
+			minor, _ = strconv.Atoi(matches[2])
+			return major, minor, nil
+		}
+	}
+	return 0, 0, errors.Errorf("glibc version not found in ldd output")
 }
 
 // CPUValidateVersion checks whether the linux version selected by "-version" exists.

@@ -28,7 +28,7 @@ func init() {
 
 func TestMain(m *testing.M) {
 	flag.Parse()
-	installer.AutoInstall("", true, installer.VerbosityLevel(1))
+	installer.AutoInstall("", true, installer.VerbosityLevel(2))
 
 	if *flagMemProfileRate > 0 {
 		runtime.MemProfileRate = *flagMemProfileRate
