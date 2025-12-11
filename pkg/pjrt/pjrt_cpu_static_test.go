@@ -3,7 +3,7 @@
 package pjrt
 
 import (
-	"github.com/gomlx/go-xla/pkg/pjrt/internal/cpustatictest"
+	"github.com/gomlx/go-xla/internal/pjrt/cpustatictest"
 	"k8s.io/klog/v2"
 )
 
