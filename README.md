@@ -70,7 +70,41 @@ Use the `stablehlo` to define your computation. Then use `pjrt` to compile (once
 
 ### [`github.com/gomlx/go-xla/pkg/stablehlo`](https://pkg.go.dev/github.com/gomlx/go-xla/pkg/pjrt)
 
+* Create a `Builder` object with `stablehlo.NewBuilder()`
+* Create a `Main` function with `Builder.Main()` (or other functions with `Builder.NewFunction()`)
+* Define the function using the various operations defined in `stablehlo`. Their inputs and outputs are `*stablehlo.Value`
+  types, which hold a reference to the `Function` they are defined in, as well as their `shapes.Shape`.
+* Finish functions with `Function.Return(values...)`.
+* Finish the _StableHLO_ program with `Builder.Build()`, it will return a string with the program, that can be fed to
+  `pjrt` for compiling and execution.
 
+Here is a sample of the `stablehlo` Go API, to create a module that calculates $f(x) = x^2+1$ (without the error handling lines):
+
+```go
+					builder := stablehlo.New("x_times_x_plus_1") // Use valid identifier for module name
+					scalarF32 := shapes.Make(dtypes.F32)         // Scalar float32 shape
+					mainFn := builder.Main()
+					x, err := mainFn.NamedInput("x", scalarF32)
+					fX, err := stablehlo.Multiply(x, x)
+					one, err := mainFn.ConstantFromScalar(float32(1))
+					fX, err = stablehlo.Add(fX, one)
+					err = mainFn.Return(fX) // Set the return value for the main function
+					stableHLOCode, err := builder.Build()
+					fmt.Printf("StableHLO:\n%s\n", string(stableHLOCode))
+```
+
+Here is the _StableHLO_ text generated:
+
+```mlir
+module @x_times_x_plus_1 {
+  func.func @main(%x: tensor<f32>) -> tensor<f32> {
+    %0 = "stablehlo.multiply"(%x, %x) : (tensor<f32>, tensor<f32>) -> tensor<f32>
+    %1 = "stablehlo.constant"() { value = dense<1.0> : tensor<f32> } : () -> tensor<f32>
+    %2 = "stablehlo.add"(%0, %1) : (tensor<f32>, tensor<f32>) -> tensor<f32>
+    "stablehlo.return"(%2) : (tensor<f32>) -> ()
+  }
+}
+```
 
 ### [`github.com/gomlx/go-xla/pkg/pjrt`](https://pkg.go.dev/github.com/gomlx/go-xla/pkg/pjrt)
 
@@ -85,25 +119,15 @@ The `pjrt` package includes the following main concepts:
 * `Buffer`: Represents a buffer with the input/output data for the computations in the accelerators. There are 
   methods to transfer it to/from the host memory. They are the inputs and outputs of `LoadedExecutable.Execute`.
 
-## Example
-
-See full code (`stablehlo` + `pjrt`) in [mandelbrot.ipynb notebook](https://github.com/gomlx/go-xla/blob/main/examples/mandelbrot.ipynb),
-which generates the image below:
-
-<a href="https://github.com/gomlx/go-xla/blob/main/examples/mandelbrot.ipynb">
-<img alt="Mandelbrot fractal figure" src="https://github.com/user-attachments/assets/6bf4d0bb-efe6-4b2e-8e8a-af2e34dbb63b" style="width:400px; height:240px"/>
-</a>
-
-Here is a sample of the `stablehlo` code:
-
-And here how to run the computation with `pjrt`:
+Example on how to run the computation with `pjrt`:
 
 ```go
 var flagPluginName = flag.String("plugin", "cuda", "PRJT plugin name or full path")
 ...
+err := installer.AutoInstall()  // Installs all supported plugin(s) if not already installed.
 plugin, err := pjrt.GetPlugin(*flagPluginName)
 client, err := plugin.NewClient(nil)
-executor, err := client.Compile().WithStableHLO(stablehloCode).Done()
+executor, err := client.Compile().WithStableHLO(stableHLOCode).Done()
 for ii, value := range []float32{minX, minY, maxX, maxY} {
    inputs[ii], err = pjrt.ScalarToBuffer(m.client, value)
 }
@@ -112,6 +136,13 @@ flat, err := pjrt.BufferToArray[float32](outputs[0])
 outputs[0].Destroy() // Don't wait for the GC, destroy the buffer immediately.
 ...
 ```
+
+For a more elaborate example, see [the mandelbrot.ipynb notebook](https://github.com/gomlx/go-xla/blob/main/examples/mandelbrot.ipynb),
+which generates the image below:
+
+<a href="https://github.com/gomlx/go-xla/blob/main/examples/mandelbrot.ipynb">
+<img alt="Mandelbrot fractal figure" src="https://github.com/user-attachments/assets/6bf4d0bb-efe6-4b2e-8e8a-af2e34dbb63b" style="width:400px; height:240px"/>
+</a>
 
 ## Installation of PJRT plugin
 
