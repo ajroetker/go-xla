@@ -18,7 +18,6 @@ void (*OnDeleteSharedBufferPtr)(void* device_buffer_ptr, void* user_arg) = &OnDe
 */
 import "C"
 import (
-	"fmt"
 	"reflect"
 	"slices"
 	"unsafe"
@@ -129,7 +128,6 @@ func (c *Client) NewSharedBuffer(dtype dtypes.DType, dimensions []int, device ..
 		buffer = nil
 		return
 	}
-	fmt.Println("* buffer: created sharedRawStorage")
 	buffer.wrapper.sharedRawStorage = rawStorage
 	buffer.isShared = true
 

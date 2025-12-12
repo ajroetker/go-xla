@@ -1,3 +1,7 @@
+# v0.1.1
+
+* Removed left-over debug message.
+
 # v0.1.0 Merge `stablehlo` and `pjrt` into `go-xla`.
 
 * Merge `stablehlo` and `pjrt` into `go-xla`.
