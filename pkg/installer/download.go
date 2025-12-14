@@ -382,7 +382,7 @@ func GitHubDownloadReleaseAssets(repo string, version string) ([]string, error) 
 		return nil, errors.Errorf("version %q not found", version)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, errors.Errorf("unexpected status code %d", resp.StatusCode)
+		return nil, errors.Errorf("unexpected status code %d - %q (url=%q)", resp.StatusCode, resp.Status, releaseURL)
 	}
 
 	// Read response body
