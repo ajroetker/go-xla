@@ -382,6 +382,12 @@ func GitHubDownloadReleaseAssets(repo string, version string) ([]string, error) 
 		return nil, errors.Errorf("version %q not found", version)
 	}
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusForbidden {
+			return nil, errors.Errorf(
+				"unexpected status code %d - %q (url=%q); maybe it's beeing throttled by GitHub, "+
+					"and requires GH_TOKEN to be set?",
+				resp.StatusCode, resp.Status, releaseURL)
+		}
 		return nil, errors.Errorf("unexpected status code %d - %q (url=%q)", resp.StatusCode, resp.Status, releaseURL)
 	}
 
