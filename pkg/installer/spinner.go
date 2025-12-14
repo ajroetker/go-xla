@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"golang.org/x/term"
 )
 
 // Spinner is a utility to run an action while displaying a rotating text indicator
@@ -34,9 +35,11 @@ func (s *Spinner) Action(action func(chan<- string)) *Spinner {
 }
 
 const (
-	eraseToEOL = "\033[0K"
-	hideCursor = "\033[?25l"
-	showCursor = "\033[?25h"
+	eraseToEOL    = "\033[0K"
+	hideCursor    = "\033[?25l"
+	showCursor    = "\033[?25h"
+	saveCursor    = "\0337"
+	restoreCursor = "\0338"
 )
 
 var spinRunes = []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
@@ -48,7 +51,7 @@ func (s *Spinner) Run() error {
 	}
 
 	// Constants for animation
-	const interval = 100 * time.Millisecond
+	const interval = 200 * time.Millisecond
 
 	// Channels for control and communication
 	var wg sync.WaitGroup
@@ -73,16 +76,19 @@ func (s *Spinner) Run() error {
 		for {
 			select {
 			case <-ticker.C:
+				// terminalWidth recalculated at every tick, since it may change mid-animation.
+				terminalWidth, _, err := term.GetSize(0)
+				if err != nil {
+					terminalWidth = 80
+				}
+
 				// Animation tick: redraw with the current title
 				spinRune := spinRunes[spinCharsIdx%len(spinRunes)]
-				fmt.Printf("\r%c %s%s", spinRune, currentTitle, eraseToEOL)
+				fmt.Printf("\r%c %s%s", spinRune, truncateToWidth(currentTitle, terminalWidth-3), eraseToEOL)
 				spinCharsIdx++
 
 			case newTitle := <-titleUpdateChan:
-				// Title update received: update the title and redraw immediately
 				currentTitle = newTitle
-				spinRune := spinRunes[spinCharsIdx%len(spinRunes)]
-				fmt.Printf("\r%c %s%s", spinRune, currentTitle, eraseToEOL)
 
 			case <-stopChan:
 				// Cleanup and exit
