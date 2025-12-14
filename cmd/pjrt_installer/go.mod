@@ -9,7 +9,7 @@ require (
 	github.com/charmbracelet/huh/spinner v0.0.0-20251124111010-6575a6e28cb3
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/term v0.2.2
-	github.com/gomlx/go-xla v0.1.2-0.20251214110753-4ddd06a3d1f9
+	github.com/gomlx/go-xla v0.1.2
 	github.com/pkg/errors v0.9.1
 	k8s.io/klog/v2 v2.130.1
 )
@@ -38,6 +38,7 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/sys v0.39.0 // indirect
+	golang.org/x/term v0.38.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 )
