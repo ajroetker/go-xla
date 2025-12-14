@@ -28,7 +28,11 @@ func init() {
 
 func TestMain(m *testing.M) {
 	flag.Parse()
-	installer.AutoInstall("", true, installer.VerbosityLevel(2))
+	err := installer.AutoInstall("", true, installer.VerbosityLevel(2))
+	if err != nil {
+		klog.Errorf("Failed to auto-install PJRT plugin(s): %+v", err)
+		klog.Warningf("Will attempt to continue, despite auto-install error")
+	}
 
 	if *flagMemProfileRate > 0 {
 		runtime.MemProfileRate = *flagMemProfileRate
