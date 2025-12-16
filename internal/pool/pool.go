@@ -25,15 +25,14 @@ type poolHead[T any] struct {
 
 	// raceMutex is used only when the race detector is enabled to establish
 	// happens-before relationships for the race detector. In non-race builds,
-	// it is an empty struct and optimized away.
+	// it occupies 8 bytes (unused) to maintain consistent struct layout.
 	raceMutex
 
 	// Padding to ensure the struct is 64 bytes.
 	// We assume 64-bit architecture (pointer size 8 bytes).
-	// 64 - 8 = 56.
-	// Note: In race mode, raceMutex adds size, so the total size will be > 64.
-	// We disable the size check in race mode.
-	_ [56]byte
+	// head (8) + raceMutex (8) = 16.
+	// 64 - 16 = 48.
+	_ [48]byte
 }
 
 // Pool is a lock-free (per-P) pool of objects.
@@ -49,13 +48,11 @@ type Pool[T any] struct {
 // NewPool creates a new Pool.
 func NewPool[T any](newFunc func() T) *Pool[T] {
 	// Verify alignment assumption.
-	if checkAlignment {
-		var p poolHead[T]
-		if unsafe.Sizeof(p) != cacheLineSize {
-			// This should only happen on non-64-bit architectures or if pointer size changes.
-			// For now we panic to ensure we meet the spec.
-			panic("internal/pool: poolHead size is not 64 bytes")
-		}
+	var p poolHead[T]
+	if unsafe.Sizeof(p) != cacheLineSize {
+		// This should only happen on non-64-bit architectures or if pointer size changes.
+		// For now we panic to ensure we meet the spec.
+		panic("internal/pool: poolHead size is not 64 bytes")
 	}
 
 	return &Pool[T]{

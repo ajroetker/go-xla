@@ -4,8 +4,6 @@ package pool
 
 import "sync"
 
-const checkAlignment = false
-
 type raceMutex struct {
 	sync.Mutex
 }

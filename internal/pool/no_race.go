@@ -2,9 +2,9 @@
 
 package pool
 
-const checkAlignment = true
-
-type raceMutex struct{}
+type raceMutex struct {
+	_ [8]byte
+}
 
 func (m *raceMutex) lock() {}
 func (m *raceMutex) unlock() {}
