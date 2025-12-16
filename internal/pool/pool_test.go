@@ -17,9 +17,9 @@ func TestPool(t *testing.T) {
 
 	var counter int32
 	// Create a pool that assigns a unique ID to each new object.
-	pool := NewPool(func() *MyObject {
+	pool := New(func() *PoolNode[*MyObject] {
 		id := atomic.AddInt32(&counter, 1)
-		return &MyObject{ID: int(id)}
+		return &PoolNode[*MyObject]{Item: &MyObject{ID: int(id)}}
 	})
 
 	const numGoroutines = 500
@@ -78,7 +78,7 @@ func BenchmarkPool(b *testing.B) {
     type MyObject struct {
         val int
     }
-    p := NewPool(func() *MyObject { return &MyObject{} })
+    p := New(func() *PoolNode[*MyObject] { return &PoolNode[*MyObject]{Item: &MyObject{}} })
 
     b.RunParallel(func(pb *testing.PB) {
         for pb.Next() {

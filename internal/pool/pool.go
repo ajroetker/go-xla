@@ -42,11 +42,11 @@ type Pool[T any] struct {
 	// New optionally specifies a function to generate
 	// a value when Get would otherwise return nil.
 	// It may not be changed concurrently with calls to Get.
-	New func() T
+	New func() *PoolNode[T]
 }
 
-// NewPool creates a new Pool.
-func NewPool[T any](newFunc func() T) *Pool[T] {
+// New creates a new Pool.
+func New[T any](newFunc func() *PoolNode[T]) *Pool[T] {
 	// Verify alignment assumption.
 	var p poolHead[T]
 	if unsafe.Sizeof(p) != cacheLineSize {
@@ -84,9 +84,10 @@ func (p *Pool[T]) Get() *PoolNode[T] {
 	runtime_procUnpin()
 
 	if node == nil {
-		node = new(PoolNode[T])
 		if p.New != nil {
-			node.Item = p.New()
+			node = p.New()
+		} else {
+			node = new(PoolNode[T])
 		}
 	}
 	return node
