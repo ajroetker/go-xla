@@ -1,3 +1,8 @@
+# v0.1.3
+
+* Replaced GenPool by the `internal/pool.Pool`: it simplifies a bit, a bit faster and one less
+  dependency.
+
 # v0.1.2
 
 * Removed external dependency to `github.com/charmbracelet/huh/spinner` from `pkg/installer`.
