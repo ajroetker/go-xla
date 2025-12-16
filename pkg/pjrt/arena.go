@@ -9,11 +9,17 @@ import (
 	"math/bits"
 	"reflect"
 	"runtime"
-	"time"
 	"unsafe"
 
-	"github.com/AlexsanderHamir/GenPool/pool"
+	"github.com/gomlx/go-xla/internal/pool"
 )
+
+type arenaContainerBase struct {
+	data          *arenaData
+	size, current int
+	poolIndex     int // index in the arenaPools, -1 if not from pool
+	cPointer      *byte
+}
 
 // arenaContainer implements a trivial arena object to speed up allocations that will be used in CGO calls.
 //
@@ -26,39 +32,7 @@ import (
 // If you don't call Free at the end, it will leak the C allocated space.
 //
 // The Plugin object also provides an arenaPool that improves things a bit.
-type arenaContainer struct {
-	next       *arenaContainer
-	usageCount int64
-	shardIndex int
-
-	data          *arenaData
-	size, current int
-	poolIndex     int // index in the arenaPools, -1 if not from pool
-	cPointer      *byte
-}
-
-// GetNext returns the next object in the pool's linked list
-func (a *arenaContainer) GetNext() *arenaContainer { return a.next }
-
-// SetNext sets the next object in the pool's linked list
-func (a *arenaContainer) SetNext(next *arenaContainer) { a.next = next }
-
-// GetUsageCount returns the number of times this object has been used
-func (a *arenaContainer) GetUsageCount() int64 { return a.usageCount }
-
-// IncrementUsage increments the usage count of this object
-func (a *arenaContainer) IncrementUsage() { a.usageCount++ }
-
-// ResetUsage resets the usage count to 0
-func (a *arenaContainer) ResetUsage() { a.usageCount = 0 }
-
-// SetShardIndex sets the shard index for this object
-func (a *arenaContainer) SetShardIndex(index int) {
-	a.shardIndex = index
-}
-
-// GetShardIndex returns the shard index for this object
-func (a *arenaContainer) GetShardIndex() int { return a.shardIndex }
+type arenaContainer pool.PoolNode[arenaContainerBase]
 
 // arenaData is an indirection so we can use runtime.AddCleanUp.
 type arenaData struct {
@@ -74,13 +48,15 @@ func newArena(size int) *arenaContainer {
 	buf := cMallocArray[byte](size)
 	// fmt.Printf("* arena: alloc(%d)\n", size)
 	a := &arenaContainer{
-		data: &arenaData{
-			buf: unsafe.Slice(buf, size),
+		Item: arenaContainerBase{
+			data: &arenaData{
+				buf: unsafe.Slice(buf, size),
+			},
+			size:      size,
+			poolIndex: -1,
 		},
-		size:      size,
-		poolIndex: -1,
 	}
-	runtime.AddCleanup(a, freeArenaData, a.data)
+	runtime.AddCleanup(a, freeArenaData, a.Item.data)
 	return a
 }
 
@@ -89,12 +65,12 @@ const arenaAlignBytes = 8
 // arenaAlloc allocates a type T from the arena. It panics if the arena run out of memory.
 func arenaAlloc[T any](a *arenaContainer) (ptr *T) {
 	allocSize := cSizeOf[T]()
-	if a.current+int(allocSize) > a.size {
-		panic(fmt.Sprintf("Arena(%p, size=%d) out of memory while allocating %d bytes for %q", a, a.size, allocSize, reflect.TypeOf(ptr).Elem()))
+	if a.Item.current+int(allocSize) > a.Item.size {
+		panic(fmt.Sprintf("Arena(%p, size=%d) out of memory while allocating %d bytes for %q", a, a.Item.size, allocSize, reflect.TypeOf(ptr).Elem()))
 	}
-	ptr = (*T)(unsafe.Pointer(&a.data.buf[a.current]))
-	a.current += int(allocSize)
-	a.current = (a.current + arenaAlignBytes - 1) &^ (arenaAlignBytes - 1)
+	ptr = (*T)(unsafe.Pointer(&a.Item.data.buf[a.Item.current]))
+	a.Item.current += int(allocSize)
+	a.Item.current = (a.Item.current + arenaAlignBytes - 1) &^ (arenaAlignBytes - 1)
 	return
 }
 
@@ -103,26 +79,26 @@ func arenaAlloc[T any](a *arenaContainer) (ptr *T) {
 // It panics if the arena run out of memory.
 func arenaAllocSlice[T any](a *arenaContainer, n int) (slice []T) {
 	allocSize := C.size_t(n) * cSizeOf[T]()
-	if a.current+int(allocSize) > a.size {
-		panic(fmt.Sprintf("Arena(%p, size=%d) out of memory while allocating %d bytes for [%d]%s", a, a.size, allocSize, n, reflect.TypeOf(slice).Elem()))
+	if a.Item.current+int(allocSize) > a.Item.size {
+		panic(fmt.Sprintf("Arena(%p, size=%d) out of memory while allocating %d bytes for [%d]%s", a, a.Item.size, allocSize, n, reflect.TypeOf(slice).Elem()))
 	}
-	ptr := (*T)(unsafe.Pointer(&a.data.buf[a.current]))
-	a.current += int(allocSize)
-	a.current = (a.current + arenaAlignBytes - 1) &^ (arenaAlignBytes - 1)
+	ptr := (*T)(unsafe.Pointer(&a.Item.data.buf[a.Item.current]))
+	a.Item.current += int(allocSize)
+	a.Item.current = (a.Item.current + arenaAlignBytes - 1) &^ (arenaAlignBytes - 1)
 	slice = unsafe.Slice(ptr, n)
 	return
 }
 
 // Free invalidates all previous allocations of the arena and frees the C allocated area.
 func (a *arenaContainer) Free() {
-	if a.data == nil {
+	if a.Item.data == nil {
 		return
 	}
-	freeArenaData(a.data)
-	a.size = 0
-	a.current = 0
-	a.data = nil
-	a.poolIndex = -1
+	freeArenaData(a.Item.data)
+	a.Item.size = 0
+	a.Item.current = 0
+	a.Item.data = nil
+	a.Item.poolIndex = -1
 }
 
 func freeArenaData(data *arenaData) {
@@ -137,15 +113,15 @@ func freeArenaData(data *arenaData) {
 // This way the arena can be re-used.
 func (a *arenaContainer) Reset() {
 	// Zero the values used.
-	if a.data == nil || a.data.buf == nil || a.size == 0 {
-		a.current = 0
+	if a.Item.data == nil || a.Item.data.buf == nil || a.Item.size == 0 {
+		a.Item.current = 0
 		return
 	}
-	if a.current > 0 {
-		clearSize := min(a.size, a.current)
-		C.memset(unsafe.Pointer(&a.data.buf[0]), 0, C.size_t(clearSize))
+	if a.Item.current > 0 {
+		clearSize := min(a.Item.size, a.Item.current)
+		C.memset(unsafe.Pointer(&a.Item.data.buf[0]), 0, C.size_t(clearSize))
 	}
-	a.current = 0
+	a.Item.current = 0
 }
 
 const (
@@ -155,25 +131,14 @@ const (
 	maxPooledArenaSize = 16 * 1024 * 1024
 )
 
-var arenaCleanupPolicy = pool.CleanupPolicy{
-	Enabled:       true,
-	Interval:      10 * time.Minute,
-	MinUsageCount: 20, // eviction happens below this number of usage per object
-}
-
 // arenaPools manages pools of arenaContainer objects with power-of-2 sizes.
 // It provides fast, concurrent-safe allocation and reuse of arena objects.
 //
-// It uses GenPool (and not sync.Pool) because we want to the arenas to live longer.
-// See discussions in [1], [2], [3]
-//
-// [1] https://victoriametrics.com/blog/go-sync-pool/
-// [2] https://alexsanderhamir.medium.com/beyond-sync-pool-exploring-object-pool-designs-for-different-workloads-aaab60937277
-// [3] https://www.reddit.com/r/golang/comments/1lvjmar/genpool_a_faster_tunable_alternative_to_syncpool/
+// It uses internal/pool (and not sync.Pool) because we want to the arenas to live longer.
 type arenaPools struct {
 	// pools[i] contains arenas of size 2^(i+11), where i=0 is DefaultArenaSize (2048 = 2^11)
 	// and the maximum is 16MB (2^24).
-	pools []*pool.ShardedPool[arenaContainer, *arenaContainer]
+	pools []*pool.Pool[arenaContainerBase]
 
 	// minShift is the bit position for DefaultArenaSize (11 for 2048)
 	minShift int
@@ -189,28 +154,18 @@ func newArenaPools() (*arenaPools, error) {
 	numPools := maxShift - minShift + 1
 
 	ap := &arenaPools{
-		// pools:    make([]sync.Pool, numPools),
-		pools:    make([]*pool.ShardedPool[arenaContainer, *arenaContainer], numPools),
+		pools:    make([]*pool.Pool[arenaContainerBase], numPools),
 		minShift: minShift,
 		maxShift: maxShift,
 	}
 
 	for poolIdx := range numPools {
 		poolSize := 1 << (poolIdx + minShift)
-		config := pool.Config[arenaContainer, *arenaContainer]{
-			Cleanup: arenaCleanupPolicy,
-			Allocator: func() *arenaContainer {
-				arena := newArena(poolSize)
-				arena.poolIndex = poolIdx
-				return arena
-			},
-			Cleaner: func(a *arenaContainer) { a.Reset() },
-		}
-		p, err := pool.NewPoolWithConfig(config)
-		if err != nil {
-			return nil, err
-		}
-		ap.pools[poolIdx] = p
+		ap.pools[poolIdx] = pool.New(func() *pool.PoolNode[arenaContainerBase] {
+			arena := newArena(poolSize)
+			arena.Item.poolIndex = poolIdx
+			return (*pool.PoolNode[arenaContainerBase])(arena)
+		})
 	}
 	return ap, nil
 }
@@ -239,8 +194,8 @@ func (ap *arenaPools) Get(targetSize int) *arenaContainer {
 	poolIndex := shift - ap.minShift
 
 	// Try to get from the pool.
-	arena := ap.pools[poolIndex].Get()
-	return arena
+	node := ap.pools[poolIndex].Get()
+	return (*arenaContainer)(node)
 }
 
 // Return returns an arenaContainer to the pool for reuse.
@@ -248,24 +203,23 @@ func (ap *arenaPools) Get(targetSize int) *arenaContainer {
 // Arenas larger than maxPooledArenaSize are freed instead of pooled.
 func (ap *arenaPools) Return(arena *arenaContainer) {
 	// fmt.Printf("* arenaPools.Return(poolIndex=%d)\n", arena.poolIndex)
-	if arena == nil || arena.data == nil || arena.data.buf == nil {
+	if arena == nil || arena.Item.data == nil || arena.Item.data.buf == nil {
 		return
 	}
 
 	// If not from pool or too large, just free it
-	if arena.poolIndex < 0 || arena.poolIndex >= len(ap.pools) {
+	if arena.Item.poolIndex < 0 || arena.Item.poolIndex >= len(ap.pools) {
 		arena.Free()
 		return
 	}
 
 	// Reset and return to the pool.
-	ap.pools[arena.poolIndex].Put(arena)
+	arena.Reset()
+	ap.pools[arena.Item.poolIndex].Put((*pool.PoolNode[arenaContainerBase])(arena))
 }
 
 // Free pools.
 func (ap *arenaPools) Free() {
-	for _, p := range ap.pools {
-		p.Close()
-	}
+	// internal/pool pools cannot be closed/freed.
 	ap.pools = nil
 }
