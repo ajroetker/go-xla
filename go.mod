@@ -5,7 +5,6 @@ go 1.24.3
 toolchain go1.24.6
 
 require (
-	github.com/AlexsanderHamir/GenPool v1.6.6
 	github.com/janpfeifer/go-benchmarks v0.1.1
 	github.com/pkg/errors v0.9.1
 	github.com/x448/float16 v0.8.4
