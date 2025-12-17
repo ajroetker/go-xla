@@ -40,7 +40,6 @@ import "C"
 import (
 	"bufio"
 	"os"
-	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -82,7 +81,7 @@ func osDefaultLibraryPaths() []string {
 
 	// Prefix LD_LIBRARY_PATH to non-absolute entries.
 	for ldPath := range strings.SplitSeq(os.Getenv("LD_LIBRARY_PATH"), ":") {
-		if ldPath == "" || !path.IsAbs(ldPath) {
+		if ldPath == "" || !filepath.IsAbs(ldPath) {
 			// No empty or relative paths.
 			continue
 		}

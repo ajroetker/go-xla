@@ -23,9 +23,7 @@ package pjrt
 */
 import "C"
 import (
-	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -94,7 +92,7 @@ func loadNamedPlugin(name string) (*Plugin, error) {
 	if plugin, found := loadedPlugins[name]; found {
 		return plugin, nil
 	}
-	if path.IsAbs(name) {
+	if filepath.IsAbs(name) {
 		for _, plugin := range loadedPlugins {
 			if plugin.Path() == name {
 				return plugin, nil
@@ -104,7 +102,7 @@ func loadNamedPlugin(name string) (*Plugin, error) {
 
 	// Search path to plugin -- except if name is an absolute path.
 	pluginPath := name
-	if !path.IsAbs(pluginPath) {
+	if !filepath.IsAbs(pluginPath) {
 		var found bool
 		pluginPath, found = searchPlugin(name)
 		if !found {
@@ -190,7 +188,6 @@ func searchPlugins(searchName string) (pluginsPaths map[string]string) {
 	}
 
 	// Search for plugins in other paths.
-	fmt.Printf("- Searching for plugin %q:\n", searchName)
 	for _, pluginPath := range pluginSearchPaths {
 		for _, pattern := range []string{
 			"pjrt-plugin-*.so", "pjrt_plugin_*.so", "pjrt_c_api_*_plugin.so",
@@ -202,22 +199,18 @@ func searchPlugins(searchName string) (pluginsPaths map[string]string) {
 			}
 			for _, candidate := range candidates {
 				name := pathToPluginName(candidate)
-				fmt.Printf("\t - Evaluating plugin candidate %q: named %q\n", candidate, name)
 				if name == "" {
 					continue
 				}
 				if searchName != "" && searchName != name {
-					fmt.Println("\t   (skipped, name doesn't match)")
 					continue
 				}
 				if _, found := pluginsPaths[name]; found {
 					// We already have a plugin with that name.
-					fmt.Println("\t   (skipped, plugin already loaded with that name)")
 					continue
 				}
 				err := checkPlugin(name, candidate)
 				if err != nil {
-					fmt.Println("\t   (skipped, plugin file didn't check)")
 					continue
 				}
 				pluginsPaths[name] = candidate

@@ -27,7 +27,6 @@ import "C"
 
 import (
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -59,7 +58,7 @@ func osDefaultLibraryPaths() []string {
 	// Standard environment variables.
 	for _, varName := range []string{"DYLD_LIBRARY_PATH", "LD_LIBRARY_PATH"} {
 		for ldPath := range strings.SplitSeq(os.Getenv(varName), string(os.PathListSeparator)) {
-			if ldPath == "" || !path.IsAbs(ldPath) {
+			if ldPath == "" || !filepath.IsAbs(ldPath) {
 				// No empty or relative paths.
 				continue
 			}

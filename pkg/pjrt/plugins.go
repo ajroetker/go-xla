@@ -125,7 +125,6 @@ func RegisterPreloadedPlugin(name string, api uintptr) error {
 // If it is not set it will search in `/usr/local/lib/gomlx` and the standard libraries directories of the
 // system (in linux in LD_LIBRARY_CONFIG and /etc/ld.so.conf file).
 func GetPlugin(name string) (*Plugin, error) {
-	fmt.Printf("GetPlugin(%q):\n", name)
 	return loadNamedPlugin(name)
 }
 
