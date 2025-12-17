@@ -83,7 +83,7 @@ func DefaultHomeLibPath() (string, error) {
 	case "darwin":
 		return filepath.Join(homeDir, "Library", "Application Support"), nil
 	case "windows":
-		return filepath.Join(homeDir, "AppData", "Local", "go-xla"), nil
+		return filepath.Join(homeDir, "AppData", "Local"), nil
 	default:
 		return "", errors.Errorf("auto-install not supported on platform %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
