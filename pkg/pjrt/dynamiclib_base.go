@@ -30,7 +30,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"syscall"
 
 	"github.com/pkg/errors"
 	"k8s.io/klog/v2"
@@ -259,21 +258,6 @@ func checkPlugin(name, pluginPath string) (err error) {
 		err = errors.Errorf("loaded PJRT plugin for %q, but it returned a nil plugin!?", pluginPath)
 		return
 	}
-	return
-}
-
-func suppressLogging() (newFd int, err error) {
-	newFd, err = syscall.Dup(2)
-	if err != nil {
-		err = errors.Wrap(err, "failed to duplicate (syscall.Dup) file descriptor 2 (stderr) in order to silence abseil logging")
-		return
-	}
-	err = syscall.Close(2)
-	if err != nil {
-		klog.Errorf("failed to syscall.Close(2): %v", err)
-		err = nil // Report, but continue.
-	}
-	os.Stderr = os.NewFile(uintptr(newFd), "stderr")
 	return
 }
 
