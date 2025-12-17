@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"unicode/utf8"
 
@@ -62,27 +63,31 @@ func ReplaceTildeInDir(dir string) (string, error) {
 	if dir[0] != '~' {
 		return dir, nil
 	}
-	// Determine which separator is used first: '/' (unix) or '\' (windows)
-	sep := string(filepath.Separator)
 
 	// Accept either '/' or '\' as separator following the user name.
-	sepIdxUnix := strings.IndexRune(dir, '/')
-	sepIdxWin := strings.IndexRune(dir, '\\')
-
 	sepIdx := -1
-	// Find the earliest separator (if any)
-	if sepIdxUnix == -1 {
-		sepIdx = sepIdxWin
-	} else if sepIdxWin == -1 {
-		sepIdx = sepIdxUnix
-	} else if sepIdxUnix < sepIdxWin {
-		sepIdx = sepIdxUnix
+	if runtime.GOOS != "windows" {
+		sepIdx = strings.IndexRune(dir, filepath.Separator)
 	} else {
-		sepIdx = sepIdxWin
+		// In windows we accept both: "/" and "\\".
+		sepIdxUnix := strings.IndexRune(dir, '/')
+		sepIdxWin := strings.IndexRune(dir, '\\')
+
+		// Find the earliest separator (if any)
+		if sepIdxUnix == -1 {
+			sepIdx = sepIdxWin
+		} else if sepIdxWin == -1 {
+			sepIdx = sepIdxUnix
+		} else if sepIdxUnix < sepIdxWin {
+			sepIdx = sepIdxUnix
+		} else {
+			sepIdx = sepIdxWin
+		}
 	}
 
+	// Find user name after the tilde, if one is given.
 	var userName string
-	if dir != "~" && !strings.HasPrefix(dir, "~/") && !strings.HasPrefix(dir, `~\`) {
+	if dir != "~" && sepIdx != 1 { // "~/" or "~\\"
 		// Extract the username, whatever the first separator is
 		if sepIdx == -1 {
 			userName = dir[1:]
@@ -90,6 +95,8 @@ func ReplaceTildeInDir(dir string) (string, error) {
 			userName = dir[1:sepIdx]
 		}
 	}
+
+	// Retrive user and their home directory.
 	var usr *user.User
 	var err error
 	if userName == "" {
