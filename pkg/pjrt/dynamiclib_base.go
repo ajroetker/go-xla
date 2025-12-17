@@ -18,7 +18,6 @@ package pjrt
 
 /*
 #include <stdlib.h>
-#include <dlfcn.h>
 #include "pjrt_c_api.h"
 #include "common.h"
 */
