@@ -418,7 +418,7 @@ func GitHubDownloadReleaseAssets(repo string, version string) ([]string, error) 
 	// Extract .tar.gz download URLs
 	var urls []string
 	for _, asset := range release.Assets {
-		if strings.HasSuffix(asset.BrowserDownloadURL, ".tar.gz") {
+		if strings.HasSuffix(asset.BrowserDownloadURL, ".tar.gz") || strings.HasSuffix(asset.BrowserDownloadURL, ".zip") {
 			urls = append(urls, asset.BrowserDownloadURL)
 		}
 	}
