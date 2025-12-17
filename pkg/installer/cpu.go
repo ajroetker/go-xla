@@ -181,7 +181,7 @@ func CPUInstall(platform, version, installPath string, useCache bool, verbosity 
 			if strings.HasPrefix(baseFile, "pjrt_c_api_cpu_") && strings.HasSuffix(baseFile, "_plugin.so") {
 				// For Linux/Darwin:
 				// Link file to the default CPU plugin, without the version number.
-				linkPath := path.Join(installPath, "pjrt_c_api_cpu_plugin.so")
+				linkPath := filepath.Join(installPath, "pjrt_c_api_cpu_plugin.so")
 				if err := os.Remove(linkPath); err != nil && !os.IsNotExist(err) {
 					return errors.Wrap(err, "failed to remove existing link")
 				}
@@ -195,7 +195,7 @@ func CPUInstall(platform, version, installPath string, useCache bool, verbosity 
 
 			} else if strings.HasPrefix(baseFile, "pjrt_c_api_cpu_") && strings.HasSuffix(baseFile, "_plugin.dll") {
 				// Windows version of the CPU plugin.
-				linkPath := path.Join(installPath, "pjrt_c_api_cpu_plugin.dll")
+				linkPath := filepath.Join(installPath, "pjrt_c_api_cpu_plugin.dll")
 				if err := os.Remove(linkPath); err != nil && !os.IsNotExist(err) {
 					return errors.Wrap(err, "failed to remove existing link")
 				}
