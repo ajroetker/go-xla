@@ -1,7 +1,9 @@
-# Next
+# v0.1.4
 
 * Updated installer library/cli to support linux/arm64 and windows/amd64. 
   Generalized CPU installation.
+* linux and amazonlinux now use the same PJRT binary, built on a glibc-2.35 system (Ubuntu 22.04).
+* Updated dependency to `pjrt-cpu-binaries` v0.83.3.
 
 # v0.1.3
 
