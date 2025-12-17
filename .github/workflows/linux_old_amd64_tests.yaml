@@ -1,4 +1,4 @@
-name: "Tests(linux)"
+name: "Tests(linux/amd64, ubuntu-22.04)"
 
 permissions:
   # read|write|none
@@ -26,7 +26,7 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
