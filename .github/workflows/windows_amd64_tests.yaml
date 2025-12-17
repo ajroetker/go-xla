@@ -29,6 +29,9 @@ jobs:
     runs-on: windows-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - uses: actions/checkout@v4
@@ -43,7 +46,6 @@ jobs:
           go test ./internal/tests/ -test.run=TestEndToEnd/fixed -test.v -test.count=1
 
       - name: Install PJRT plugin
-        shell: bash
         run: |
           (cd ./cmd/pjrt_installer && go work init && go work use . '..\..' && go install .)
           export CPU_VERSION="$(sed -n 's/.*var DefaultCPUVersion = "\(.*\)".*/\1/p' ./internal/utils/utils.go)"
