@@ -1,3 +1,7 @@
+# Next
+
+* Updated `DefaultCPUVersion` to "v0.83.4" (`pjrt-cpu-binaries` version)
+
 # v0.1.4
 
 * Updated installer library/cli to support linux/arm64 and windows/amd64. 
