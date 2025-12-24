@@ -82,20 +82,19 @@ import (
 //
 // Use Make to create a new shape. See example in package shapes documentation.
 type Shape struct {
-	DType       dtypes.DType
-	Dimensions  []int
-	TupleShapes []Shape // Shapes of the tuple, if this is a tuple.
+	DType           dtypes.DType
+	Dimensions      []int
+	DimensionBounds []int   // Upper bounds for dynamic dimensions (when Dimensions[i] < 0). nil or len(DimensionBounds)==len(Dimensions). 0 means no bound.
+	TupleShapes     []Shape // Shapes of the tuple, if this is a tuple.
 }
 
 // Make returns a Shape structure filled with the values given.
 // See MakeTuple for tuple shapes.
+// Note: Negative dimensions (e.g., -3) are allowed to represent symbolic/dynamic dimensions.
 func Make(dtype dtypes.DType, dimensions ...int) Shape {
 	s := Shape{Dimensions: slices.Clone(dimensions), DType: dtype}
-	for _, dim := range dimensions {
-		if dim < 0 {
-			panic(errors.Errorf("shapes.Make(%s): cannot create a shape with an axis with dimension < 0", s))
-		}
-	}
+	// Allow negative dimensions for symbolic/dynamic shapes
+	// Negative values (typically -3) represent unknown dimensions determined at runtime
 	return s
 }
 
@@ -254,6 +253,7 @@ func (s Shape) EqualDimensions(s2 Shape) bool {
 func (s Shape) Clone() (s2 Shape) {
 	s2.DType = s.DType
 	s2.Dimensions = slices.Clone(s.Dimensions)
+	s2.DimensionBounds = slices.Clone(s.DimensionBounds)
 	if s.TupleSize() > 0 {
 		s2.TupleShapes = make([]Shape, 0, len(s.TupleShapes))
 		for _, subShape := range s.TupleShapes {

@@ -50,10 +50,20 @@ func (s Shape) WriteStableHLO(writer io.Writer) error {
 			if i > 0 {
 				w("x")
 			}
-			w("%d", dim)
+			// StableHLO uses '?' for dynamic/symbolic dimensions
+			if dim < 0 {
+				w("?")
+			} else {
+				w("%d", dim)
+			}
 		}
 		w("x")
 	}
-	w("%s>", utils.DTypeToStableHLO(s.DType))
+	w("%s", utils.DTypeToStableHLO(s.DType))
+
+	// NOTE: Bounds encoding is disabled because XLA HLO translation doesn't support
+	// dynamic_broadcast_in_dim and dynamic_reshape with bounded dynamism.
+	// We use a different approach: use static shapes when extractable from constant computations.
+	w(">")
 	return err
 }

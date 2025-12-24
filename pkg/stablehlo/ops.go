@@ -2,6 +2,8 @@ package stablehlo
 
 import (
 	"fmt"
+	"math"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -76,6 +78,777 @@ func (fn *Function) unaryOp(op optypes.OpType, operand *Value) (*Value, error) {
 		return nil, err
 	}
 	return fn.addOp(op, outputShape, operand).Outputs[0], nil
+}
+
+// tryExtractConstantShape attempts to extract concrete integer dimensions from a shape Value.
+// If the shape Value was created by a Constant operation or a Concatenate of constants,
+// it extracts the integer values.
+// Returns (dimensions, true) if successful, or (nil, false) if the shape is truly dynamic.
+func tryExtractConstantShape(fn *Function, shapeValue *Value) ([]int, bool) {
+	return TryExtractConstantShape(fn, shapeValue)
+}
+
+// TryExtractConstantShape is the exported version of tryExtractConstantShape.
+// It attempts to extract constant shape values from the given StableHLO value.
+func TryExtractConstantShape(fn *Function, shapeValue *Value) ([]int, bool) {
+	// Search through function statements to find where shapeValue was defined
+	for _, stmt := range fn.Statements {
+		// Check if this statement produced the shapeValue
+		for _, output := range stmt.Outputs {
+			if output == shapeValue {
+				// Found the statement that created this value
+				if stmt.OpType == optypes.Constant {
+					// Extract the constant tensor data
+					if valueAttr, ok := stmt.Attributes["value"]; ok {
+						if tl, ok := valueAttr.(tensorLiteral); ok {
+							result, ok := extractIntegersFromTensorLiteral(tl)
+							if ok {
+								return result, true
+							}
+						}
+					}
+				}
+				// Handle Concatenate of constants (common pattern when building shape tensors)
+				if stmt.OpType == optypes.Concatenate {
+					return tryExtractConcatenatedShape(fn, stmt)
+				}
+				// Handle Reshape - just pass through to the input
+				if stmt.OpType == optypes.Reshape {
+					if len(stmt.Inputs) > 0 {
+						return tryExtractConstantShape(fn, stmt.Inputs[0])
+					}
+				}
+				// Handle GetDimensionSize - extract the dimension from the input's shape
+				if stmt.OpType == optypes.GetDimensionSize {
+					return tryExtractGetDimensionSize(fn, stmt)
+				}
+				// Handle Gather from constant tensors with constant indices
+				if stmt.OpType == optypes.Gather {
+					return tryExtractGatherConstant(fn, stmt)
+				}
+				// Handle Slice of constant tensors
+				if stmt.OpType == optypes.Slice {
+					return tryExtractSliceConstant(fn, stmt)
+				}
+				// Handle BroadcastInDim - when broadcasting a constant to a shape
+				if stmt.OpType == optypes.BroadcastInDim {
+					return tryExtractBroadcastInDimConstant(fn, stmt)
+				}
+				// Handle Multiply of constants (common in shape calculations)
+				if stmt.OpType == optypes.Multiply {
+					return tryExtractMultiplyConstant(fn, stmt)
+				}
+				// Handle Divide of constants (common in shape calculations, e.g., splitting heads)
+				if stmt.OpType == optypes.Divide {
+					return tryExtractDivideConstant(fn, stmt)
+				}
+				// Handle Select with constant condition (common in shape calculations with -1 inference)
+				if stmt.OpType == optypes.Select {
+					return tryExtractSelectConstant(fn, stmt)
+				}
+				// Handle Compare - try to evaluate constant comparisons
+				if stmt.OpType == optypes.Compare {
+					return tryExtractCompareConstant(fn, stmt)
+				}
+				// Handle Convert - just pass through to the input
+				if stmt.OpType == optypes.Convert {
+					if len(stmt.Inputs) > 0 {
+						return tryExtractConstantShape(fn, stmt.Inputs[0])
+					}
+				}
+				// Handle DynamicBroadcastInDim - when broadcasting a constant to a dynamic shape
+				if stmt.OpType == optypes.DynamicBroadcastInDim {
+					return tryExtractDynamicBroadcastConstant(fn, stmt)
+				}
+				// Not a constant operation
+				return nil, false
+			}
+		}
+	}
+	// Value not found in statements (shouldn't happen)
+	return nil, false
+}
+
+// tryExtractConcatenatedShape extracts constant values from a Concatenate operation
+// where all inputs are constants (or nested concatenates of constants).
+// This handles the common ONNX pattern where shape tensors are built by concatenating
+// individual constant dimension values.
+func tryExtractConcatenatedShape(fn *Function, concatStmt *Statement) ([]int, bool) {
+	// For shape tensors, we only handle axis=0 (concatenating 1D tensors or scalars)
+	if dimAttr, ok := concatStmt.Attributes["dimension"]; ok {
+		if dim, ok := dimAttr.(int64); ok && dim != 0 {
+			return nil, false
+		}
+	}
+
+	// Extract constants from each input and concatenate them
+	var result []int
+	for _, input := range concatStmt.Inputs {
+		dimValues, ok := tryExtractConstantShape(fn, input)
+		if !ok {
+			// One of the inputs is not a constant
+			return nil, false
+		}
+		result = append(result, dimValues...)
+	}
+
+	return result, true
+}
+
+// tryExtractConcatenatedShapePartial is like tryExtractConcatenatedShape but returns
+// partial results. For dimensions that can't be extracted, it uses -1 as a sentinel.
+// Returns (result, allExtracted, anyExtracted).
+func tryExtractConcatenatedShapePartial(fn *Function, concatStmt *Statement) ([]int, bool, bool) {
+	// For shape tensors, we only handle axis=0 (concatenating 1D tensors or scalars)
+	if dimAttr, ok := concatStmt.Attributes["dimension"]; ok {
+		if dim, ok := dimAttr.(int64); ok && dim != 0 {
+			return nil, false, false
+		}
+	}
+
+	// Extract constants from each input and concatenate them
+	var result []int
+	allExtracted := true
+	anyExtracted := false
+
+	for _, input := range concatStmt.Inputs {
+		dimValues, ok := tryExtractConstantShape(fn, input)
+		if !ok {
+			// This input is not extractable - try to determine its size from shape
+			// and fill with -1 sentinels
+			inputSize := 1
+			if input.shape.Rank() == 1 && input.shape.Dimensions[0] > 0 {
+				inputSize = input.shape.Dimensions[0]
+			}
+			for i := 0; i < inputSize; i++ {
+				result = append(result, -1)
+			}
+			allExtracted = false
+		} else {
+			result = append(result, dimValues...)
+			anyExtracted = true
+		}
+	}
+
+	return result, allExtracted, anyExtracted
+}
+
+// tryExtractGatherConstant attempts to evaluate a Gather operation when both the operand
+// and indices are constants. This handles the ONNX pattern where individual elements are
+// extracted from a constant shape tensor using Gather operations.
+func tryExtractGatherConstant(fn *Function, gatherStmt *Statement) ([]int, bool) {
+	// Gather has two inputs: operand and startIndices
+	if len(gatherStmt.Inputs) != 2 {
+		return nil, false
+	}
+
+	operand := gatherStmt.Inputs[0]
+	startIndices := gatherStmt.Inputs[1]
+
+	// Extract the constant operand (the tensor we're gathering from)
+	operandValues, operandOk := tryExtractConstantShape(fn, operand)
+	// Extract the constant indices (where we're gathering from)
+	indexValues, indexOk := tryExtractConstantShape(fn, startIndices)
+
+	if !operandOk {
+		return nil, false
+	}
+
+	if !indexOk {
+		return nil, false
+	}
+
+	// For simple scalar gather operations (most common in shape tensors),
+	// we expect a single index value
+	if len(indexValues) != 1 {
+		// More complex gather patterns not yet supported
+		return nil, false
+	}
+
+	index := indexValues[0]
+
+	// Validate index is in bounds
+	if index < 0 || index >= len(operandValues) {
+		return nil, false
+	}
+
+	// Return the gathered value as a single-element slice
+	return []int{operandValues[index]}, true
+}
+
+// tryExtractSliceConstant attempts to evaluate a Slice operation on a constant tensor.
+// This handles extracting a subrange from a constant shape tensor.
+func tryExtractSliceConstant(fn *Function, sliceStmt *Statement) ([]int, bool) {
+	// Slice has one input: the operand to slice
+	if len(sliceStmt.Inputs) != 1 {
+		return nil, false
+	}
+
+	operand := sliceStmt.Inputs[0]
+
+	// Extract the constant operand (the tensor we're slicing)
+	operandValues, ok := tryExtractConstantShape(fn, operand)
+	if !ok {
+		return nil, false
+	}
+
+	// Extract slice parameters from attributes
+	startIndicesAttr, hasStart := sliceStmt.Attributes["start_indices"]
+	limitIndicesAttr, hasLimit := sliceStmt.Attributes["limit_indices"]
+
+	if !hasStart || !hasLimit {
+		return nil, false
+	}
+
+	// Convert attributes to int slices
+	startIndices, ok := extractIntSliceFromAttribute(startIndicesAttr)
+	if !ok {
+		return nil, false
+	}
+
+	limitIndices, ok := extractIntSliceFromAttribute(limitIndicesAttr)
+	if !ok {
+		return nil, false
+	}
+
+	// For 1D slices (most common in shape tensors), extract the range
+	if len(startIndices) != 1 || len(limitIndices) != 1 {
+		return nil, false
+	}
+
+	start := startIndices[0]
+	limit := limitIndices[0]
+
+	// Validate bounds
+	if start < 0 || limit > len(operandValues) || start >= limit {
+		return nil, false
+	}
+
+	// Return the sliced values
+	return operandValues[start:limit], true
+}
+
+// tryExtractBroadcastInDimConstant attempts to extract constant values from a BroadcastInDim operation.
+// This handles the case where a scalar constant (e.g., 0) is being broadcast to create a shape tensor.
+// For example, ConstantOfShape creates a constant scalar and broadcasts it to the desired shape.
+func tryExtractBroadcastInDimConstant(fn *Function, broadcastStmt *Statement) ([]int, bool) {
+	// BroadcastInDim has one input: the operand to broadcast
+	if len(broadcastStmt.Inputs) != 1 {
+		return nil, false
+	}
+
+	operand := broadcastStmt.Inputs[0]
+
+	// Try to extract the constant value being broadcast
+	operandValues, ok := tryExtractConstantShape(fn, operand)
+	if !ok {
+		return nil, false
+	}
+
+	// If the operand is a scalar (single value), and we're broadcasting it to create a shape tensor,
+	// we need to replicate that value according to the output shape
+	if len(operandValues) == 1 {
+		// Extract the output shape from the statement's output
+		outputShape := broadcastStmt.Outputs[0].shape
+		if outputShape.Rank() != 1 {
+			// Shape tensors are always 1D, so this shouldn't be a shape tensor
+			return nil, false
+		}
+
+		// Get the output dimension (how many times to replicate the scalar)
+		outputSize := outputShape.Dimensions[0]
+		if outputSize < 0 {
+			// Symbolic dimension - can't materialize
+			return nil, false
+		}
+
+		// Replicate the scalar value
+		result := make([]int, outputSize)
+		for i := range result {
+			result[i] = operandValues[0]
+		}
+		return result, true
+	}
+
+	// If operand is already the right shape (1D tensor), just return it
+	// This handles cases where BroadcastInDim is a no-op or simple reshape
+	if len(operandValues) > 1 {
+		return operandValues, true
+	}
+
+	return nil, false
+}
+
+// tryExtractDynamicBroadcastConstant attempts to extract constant values from a DynamicBroadcastInDim operation.
+// This handles the case where a scalar constant is being broadcast dynamically to create a shape tensor.
+// For example, broadcasting constant 1 to shape [3] produces [1, 1, 1].
+func tryExtractDynamicBroadcastConstant(fn *Function, broadcastStmt *Statement) ([]int, bool) {
+	// DynamicBroadcastInDim has two inputs: operand and outputDimensions
+	if len(broadcastStmt.Inputs) != 2 {
+		return nil, false
+	}
+
+	operand := broadcastStmt.Inputs[0]
+	outputDims := broadcastStmt.Inputs[1]
+
+	// Try to extract the constant value being broadcast
+	operandValues, operandOk := tryExtractConstantShape(fn, operand)
+	// Try to extract the output shape from the shape tensor
+	outputShape, shapeOk := tryExtractConstantShape(fn, outputDims)
+
+	if !operandOk {
+		return nil, false
+	}
+
+	// If the operand is a scalar (single value), and we know the output shape,
+	// we can compute the broadcast result
+	if len(operandValues) == 1 && shapeOk && len(outputShape) > 0 {
+		// For 1D broadcast (most common in shape calculations), replicate the scalar
+		outputSize := outputShape[0]
+		if outputSize <= 0 {
+			// Invalid or symbolic size
+			return nil, false
+		}
+
+		// Replicate the scalar value
+		result := make([]int, outputSize)
+		for i := range result {
+			result[i] = operandValues[0]
+		}
+		return result, true
+	}
+
+	// If we can't extract the shape but the output has a static dimension, use that
+	if len(operandValues) == 1 {
+		outputShapeFromType := broadcastStmt.Outputs[0].shape
+		if outputShapeFromType.Rank() == 1 {
+			outputSize := outputShapeFromType.Dimensions[0]
+			if outputSize > 0 {
+				result := make([]int, outputSize)
+				for i := range result {
+					result[i] = operandValues[0]
+				}
+				return result, true
+			}
+		}
+	}
+
+	return nil, false
+}
+
+// tryExtractGetDimensionSize attempts to extract the dimension size from a GetDimensionSize operation.
+// This handles the case where the shape of an operand is known at compile time, even if the operand
+// itself is not constant. For example, GetDimensionSize(x, 0) where x has shape [12, 512, 64] returns [12].
+func tryExtractGetDimensionSize(fn *Function, getDimStmt *Statement) ([]int, bool) {
+	// GetDimensionSize has one input: the operand whose dimension we're extracting
+	if len(getDimStmt.Inputs) != 1 {
+		return nil, false
+	}
+
+	operand := getDimStmt.Inputs[0]
+
+	// GetDimensionSize has a "dimension" attribute specifying which dimension to extract
+	dimAttr, ok := getDimStmt.Attributes["dimension"]
+	if !ok {
+		return nil, false
+	}
+
+	// Convert the dimension attribute to an integer
+	var dimIndex int
+	switch v := dimAttr.(type) {
+	case int64:
+		dimIndex = int(v)
+	case int:
+		dimIndex = v
+	default:
+		return nil, false
+	}
+
+	// Check that the operand has a known shape
+	if operand.shape.Rank() <= dimIndex || dimIndex < 0 {
+		return nil, false
+	}
+
+	// Extract the dimension value
+	dimValue := operand.shape.Dimensions[dimIndex]
+	if dimValue < 0 {
+		// Symbolic dimension - can't materialize
+		return nil, false
+	}
+
+	// Return as a single-element slice (GetDimensionSize returns a scalar, but we represent it as a 1D slice)
+	return []int{dimValue}, true
+}
+
+// tryExtractMultiplyConstant attempts to evaluate a Multiply operation when both operands
+// are constants or can be extracted as constants. This handles shape calculations that
+// involve multiplying dimension sizes.
+func tryExtractMultiplyConstant(fn *Function, multiplyStmt *Statement) ([]int, bool) {
+	// Multiply has two inputs
+	if len(multiplyStmt.Inputs) != 2 {
+		return nil, false
+	}
+
+	// Try to extract both operands as constants
+	lhsValues, lhsOk := tryExtractConstantShape(fn, multiplyStmt.Inputs[0])
+	rhsValues, rhsOk := tryExtractConstantShape(fn, multiplyStmt.Inputs[1])
+
+	if !lhsOk || !rhsOk {
+		return nil, false
+	}
+
+	// Handle scalar multiplication (most common)
+	if len(lhsValues) == 1 && len(rhsValues) == 1 {
+		result := lhsValues[0] * rhsValues[0]
+		return []int{result}, true
+	}
+
+	// Handle element-wise multiplication (common in shape calculations with broadcast)
+	if len(lhsValues) == len(rhsValues) {
+		result := make([]int, len(lhsValues))
+		for i := range lhsValues {
+			result[i] = lhsValues[i] * rhsValues[i]
+		}
+		return result, true
+	}
+
+	// Handle broadcast: one operand is scalar
+	if len(lhsValues) == 1 {
+		result := make([]int, len(rhsValues))
+		for i := range rhsValues {
+			result[i] = lhsValues[0] * rhsValues[i]
+		}
+		return result, true
+	}
+	if len(rhsValues) == 1 {
+		result := make([]int, len(lhsValues))
+		for i := range lhsValues {
+			result[i] = lhsValues[i] * rhsValues[0]
+		}
+		return result, true
+	}
+
+	return nil, false
+}
+
+// tryExtractSelectConstant attempts to evaluate a Select operation when the condition
+// is a constant. This handles shape calculations that use conditional logic (element-wise).
+func tryExtractSelectConstant(fn *Function, selectStmt *Statement) ([]int, bool) {
+	// Select has three inputs: condition, onTrue, onFalse
+	if len(selectStmt.Inputs) != 3 {
+		return nil, false
+	}
+
+	// Try to extract all inputs as constants
+	condValues, condOk := tryExtractConstantShape(fn, selectStmt.Inputs[0])
+	onTrueValues, onTrueOk := tryExtractConstantShape(fn, selectStmt.Inputs[1])
+	onFalseValues, onFalseOk := tryExtractConstantShape(fn, selectStmt.Inputs[2])
+
+	if !condOk {
+		return nil, false
+	}
+
+	// Handle scalar condition (selects entire branch)
+	if len(condValues) == 1 {
+		if condValues[0] != 0 {
+			if onTrueOk {
+				return onTrueValues, true
+			}
+		} else {
+			if onFalseOk {
+				return onFalseValues, true
+			}
+		}
+		return nil, false
+	}
+
+	// Handle element-wise selection (common in shape calculations)
+	if !onTrueOk || !onFalseOk {
+		return nil, false
+	}
+
+	// Ensure all have the same length for element-wise selection
+	if len(condValues) != len(onTrueValues) || len(condValues) != len(onFalseValues) {
+		// Handle broadcast cases
+		if len(onTrueValues) == 1 {
+			// Broadcast onTrue to match condition
+			val := onTrueValues[0]
+			onTrueValues = make([]int, len(condValues))
+			for i := range onTrueValues {
+				onTrueValues[i] = val
+			}
+		}
+		if len(onFalseValues) == 1 {
+			// Broadcast onFalse to match condition
+			val := onFalseValues[0]
+			onFalseValues = make([]int, len(condValues))
+			for i := range onFalseValues {
+				onFalseValues[i] = val
+			}
+		}
+		// Re-check lengths after broadcast
+		if len(condValues) != len(onTrueValues) || len(condValues) != len(onFalseValues) {
+			return nil, false
+		}
+	}
+
+	// Perform element-wise selection
+	result := make([]int, len(condValues))
+	for i := range condValues {
+		if condValues[i] != 0 {
+			result[i] = onTrueValues[i]
+		} else {
+			result[i] = onFalseValues[i]
+		}
+	}
+	return result, true
+}
+
+// tryExtractCompareConstant attempts to evaluate a Compare operation when both operands
+// are constants. Returns 1 for true, 0 for false (element-wise for tensors).
+func tryExtractCompareConstant(fn *Function, compareStmt *Statement) ([]int, bool) {
+	// Compare has two inputs
+	if len(compareStmt.Inputs) != 2 {
+		return nil, false
+	}
+
+	// Try to extract both operands as constants
+	lhsValues, lhsOk := tryExtractConstantShape(fn, compareStmt.Inputs[0])
+	rhsValues, rhsOk := tryExtractConstantShape(fn, compareStmt.Inputs[1])
+
+	if !lhsOk || !rhsOk {
+		return nil, false
+	}
+
+	// Get the comparison direction
+	dirAttr, ok := compareStmt.Attributes["comparison_direction"]
+	if !ok {
+		return nil, false
+	}
+
+	// Parse direction - it's usually a literalStr like "#stablehlo<comparison_direction EQ>"
+	dirStr := fmt.Sprintf("%v", dirAttr)
+
+	// Helper function to perform comparison
+	compare := func(lhs, rhs int) int {
+		if strings.Contains(dirStr, "EQ") {
+			if lhs == rhs {
+				return 1
+			}
+		} else if strings.Contains(dirStr, "NE") {
+			if lhs != rhs {
+				return 1
+			}
+		} else if strings.Contains(dirStr, "LT") {
+			if lhs < rhs {
+				return 1
+			}
+		} else if strings.Contains(dirStr, "LE") {
+			if lhs <= rhs {
+				return 1
+			}
+		} else if strings.Contains(dirStr, "GT") {
+			if lhs > rhs {
+				return 1
+			}
+		} else if strings.Contains(dirStr, "GE") {
+			if lhs >= rhs {
+				return 1
+			}
+		}
+		return 0
+	}
+
+	// Handle scalar comparison
+	if len(lhsValues) == 1 && len(rhsValues) == 1 {
+		return []int{compare(lhsValues[0], rhsValues[0])}, true
+	}
+
+	// Handle element-wise comparison
+	if len(lhsValues) == len(rhsValues) {
+		result := make([]int, len(lhsValues))
+		for i := range lhsValues {
+			result[i] = compare(lhsValues[i], rhsValues[i])
+		}
+		return result, true
+	}
+
+	// Handle broadcast: one operand is scalar
+	if len(lhsValues) == 1 {
+		result := make([]int, len(rhsValues))
+		for i := range rhsValues {
+			result[i] = compare(lhsValues[0], rhsValues[i])
+		}
+		return result, true
+	}
+	if len(rhsValues) == 1 {
+		result := make([]int, len(lhsValues))
+		for i := range lhsValues {
+			result[i] = compare(lhsValues[i], rhsValues[0])
+		}
+		return result, true
+	}
+
+	return nil, false
+}
+
+// tryExtractDivideConstant attempts to evaluate a Divide operation when both operands
+// are constants or can be extracted as constants. This handles shape calculations that
+// involve dividing dimension sizes (e.g., splitting attention heads).
+func tryExtractDivideConstant(fn *Function, divideStmt *Statement) ([]int, bool) {
+	// Divide has two inputs
+	if len(divideStmt.Inputs) != 2 {
+		return nil, false
+	}
+
+	// Try to extract both operands as constants
+	lhsValues, lhsOk := tryExtractConstantShape(fn, divideStmt.Inputs[0])
+	rhsValues, rhsOk := tryExtractConstantShape(fn, divideStmt.Inputs[1])
+
+	if !lhsOk || !rhsOk {
+		return nil, false
+	}
+
+	// For scalar division (most common in shape calculations), both should be single values
+	if len(lhsValues) != 1 || len(rhsValues) != 1 {
+		return nil, false
+	}
+
+	// Avoid division by zero
+	if rhsValues[0] == 0 {
+		return nil, false
+	}
+
+	// Divide the values (integer division)
+	result := lhsValues[0] / rhsValues[0]
+	return []int{result}, true
+}
+
+// extractIntSliceFromAttribute attempts to extract a slice of integers from a StableHLO attribute.
+// Handles the literalStr type used for start_indices, limit_indices, etc.
+func extractIntSliceFromAttribute(attr interface{}) ([]int, bool) {
+	// The attribute is typically a literalStr like "array<i64: 3, 4>"
+	if str, ok := attr.(literalStr); ok {
+		return parseArrayAttr(string(str))
+	}
+
+	// Also handle regular strings
+	if str, ok := attr.(string); ok {
+		return parseArrayAttr(str)
+	}
+
+	// Try reflecting on the value to handle other array-like types
+	v := reflect.ValueOf(attr)
+	if v.Kind() == reflect.Slice || v.Kind() == reflect.Array {
+		result := make([]int, v.Len())
+		for i := 0; i < v.Len(); i++ {
+			if intVal, ok := toInt(v.Index(i).Interface()); ok {
+				result[i] = intVal
+			} else {
+				return nil, false
+			}
+		}
+		return result, true
+	}
+
+	return nil, false
+}
+
+// parseArrayAttr parses a StableHLO array attribute string like "array<i64: 3, 4>" into a slice of ints.
+func parseArrayAttr(s string) ([]int, bool) {
+	// Find the colon that separates the type from the values
+	colonIdx := strings.Index(s, ":")
+	if colonIdx == -1 {
+		return nil, false
+	}
+
+	// Extract the values part after the colon
+	valuesStr := s[colonIdx+1:]
+
+	// Remove the closing ">" if present
+	valuesStr = strings.TrimRight(valuesStr, ">")
+	valuesStr = strings.TrimSpace(valuesStr)
+
+	// Split by comma and parse each value
+	parts := strings.Split(valuesStr, ",")
+	result := make([]int, 0, len(parts))
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		val, err := strconv.Atoi(part)
+		if err != nil {
+			return nil, false
+		}
+		result = append(result, val)
+	}
+
+	return result, true
+}
+
+// extractIntegersFromTensorLiteral extracts integer values from a tensorLiteral.
+// Handles both scalar and 1D tensor cases, and various integer types.
+func extractIntegersFromTensorLiteral(tl tensorLiteral) ([]int, bool) {
+	// Handle scalar case
+	if tl.dims == nil || len(tl.dims) == 0 {
+		if val, ok := toInt(tl.value); ok {
+			return []int{val}, true
+		}
+		return nil, false
+	}
+
+	// Handle 1D tensor case
+	if len(tl.dims) != 1 {
+		return nil, false
+	}
+
+	size := tl.dims[0]
+	result := make([]int, size)
+
+	// Use reflection to handle different integer slice types
+	valueV := reflect.ValueOf(tl.value)
+	if valueV.Kind() != reflect.Slice && valueV.Kind() != reflect.Array {
+		return nil, false
+	}
+
+	for i := 0; i < size; i++ {
+		if val, ok := toInt(valueV.Index(i).Interface()); ok {
+			result[i] = val
+		} else {
+			return nil, false
+		}
+	}
+
+	return result, true
+}
+
+// toInt converts various integer types to int.
+func toInt(v interface{}) (int, bool) {
+	switch val := v.(type) {
+	case int:
+		return val, true
+	case int32:
+		return int(val), true
+	case int64:
+		return int(val), true
+	case uint32:
+		return int(val), true
+	case uint64:
+		return int(val), true
+	case int8:
+		return int(val), true
+	case int16:
+		return int(val), true
+	case uint8:
+		return int(val), true
+	case uint16:
+		return int(val), true
+	default:
+		return 0, false
+	}
 }
 
 // Compare implements the corresponding standard binary operation.
@@ -374,7 +1147,26 @@ func Reshape(operand *Value, shape shapes.Shape) (*Value, error) {
 		return nil, errors.Errorf("Reshape() requires the operand and the shape to have the same data type, got operand=%s and shape=%s",
 			operand.shape, shape)
 	}
-	if operand.shape.Size() != shape.Size() {
+
+	// Check if either shape has symbolic dimensions (negative values)
+	hasSymbolic := false
+	for _, dim := range operand.shape.Dimensions {
+		if dim < 0 {
+			hasSymbolic = true
+			break
+		}
+	}
+	if !hasSymbolic {
+		for _, dim := range shape.Dimensions {
+			if dim < 0 {
+				hasSymbolic = true
+				break
+			}
+		}
+	}
+
+	// Skip size validation if any dimension is symbolic (will be validated at runtime)
+	if !hasSymbolic && operand.shape.Size() != shape.Size() {
 		return nil, errors.Errorf("Reshape() requires the total size of the new shape to match the original shape, got operand=%s and shape=%s",
 			operand.shape, shape)
 	}
@@ -546,6 +1338,89 @@ func Slice(x *Value, starts, limits, strides []int) (*Value, error) {
 	return stmt.Outputs[0], nil
 }
 
+// Sort sorts one or more tensors along the specified dimension using a comparator function.
+//
+// Sort implements the StableHLO sort operation, which can sort multiple tensors in parallel
+// using a custom comparator function. This is useful for implementing operations like
+// top-k, argsort, or custom sorting logic.
+//
+// Parameters:
+//   - comparatorFn: A function that compares two elements and returns a boolean.
+//     Created with Builder.NewClosure. For N inputs, must have signature
+//     (lhs_0, ..., lhs_{N-1}, rhs_0, ..., rhs_{N-1}) -> scalar_bool
+//     Returns true if lhs should come before rhs in sorted order.
+//   - dimension: The dimension along which to sort (negative values count from the end)
+//   - isStable: Whether the sort should be stable (preserve relative order of equal elements)
+//   - inputs: One or more tensors to sort. All must have the same shape.
+//     The first tensor is used for comparison by the comparatorFn.
+//     Additional tensors are reordered to match the sorting of the first tensor.
+//
+// Returns:
+//   - The sorted tensors in the same order as inputs.
+//
+// Example (descending sort with indices):
+//
+//	values := ... // shape [batch, seq_len]
+//	indices := ... // shape [batch, seq_len] with values 0, 1, 2, ...
+//
+//	comparatorFn := fn.Closure()
+//	lhsVal, _ := comparatorFn.Input(values.Shape().ScalarShape())
+//	rhsVal, _ := comparatorFn.Input(values.Shape().ScalarShape())
+//	lhsIdx, _ := comparatorFn.Input(indices.Shape().ScalarShape()) // not used in comparison
+//	rhsIdx, _ := comparatorFn.Input(indices.Shape().ScalarShape()) // not used in comparison
+//	result, _ := Compare(lhsVal, rhsVal, ComparisonDirectionGT, ComparisonTypeFloat)
+//	comparatorFn.Return(result)
+//
+//	sortedValues, sortedIndices, err := Sort(comparatorFn, -1, true, values, indices)
+func Sort(comparatorFn *Function, dimension int, isStable bool, inputs ...*Value) ([]*Value, error) {
+	op := optypes.Sort
+	if len(inputs) == 0 {
+		return nil, errors.New("Sort requires at least one input tensor")
+	}
+	fn := inputs[0].fn
+	if fn.Returned {
+		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
+			op, fn.Name)
+	}
+
+	// Validate all inputs are from the same function
+	for i, input := range inputs {
+		if input.fn != fn {
+			return nil, errors.Errorf("cannot add operation %s to function %q, because input #%d is from different function (%q and %q)",
+				op, fn.Name, i, input.fn.Name, fn.Name)
+		}
+	}
+
+	// Validate comparator function is a closure of the current function
+	if comparatorFn.Parent != fn {
+		return nil, errors.Errorf("cannot add operation %s because comparatorFn is not a StableHLO closure of %s",
+			op, fn.Name)
+	}
+
+	// Adjust dimension to handle negative values
+	adjustedDim, err := shapeinference.AdjustAxisToRank(dimension, inputs[0].shape.Rank())
+	if err != nil {
+		return nil, errors.WithMessage(err, "Sort dimension for inputs")
+	}
+
+	// Perform shape inference
+	inputShapes := valuesToShapes(inputs)
+	outputShapes, err := shapeinference.Sort(inputShapes, adjustedDim)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create the statement
+	stmt := fn.addMultiOp(op, outputShapes, inputs)
+	stmt.Attributes = map[string]any{
+		"dimension": int64(adjustedDim),
+		"is_stable": isStable,
+	}
+	stmt.AddFunctionParameter("comparator", comparatorFn)
+
+	return stmt.Outputs, nil
+}
+
 // Concatenate operands on the given axis.
 //
 // All axes that are not being concatenated must match dimensions, except on the axes being concatenated.
@@ -571,6 +1446,7 @@ func Concatenate(axis int, operands ...*Value) (*Value, error) {
 	for i, operand := range operands {
 		operandsShapes[i] = operand.shape
 	}
+
 	outputShape, err := shapeinference.Concatenate(operandsShapes, axis)
 	if err != nil {
 		return nil, err
@@ -1555,4 +2431,794 @@ func BatchNormGradient(operand, scale, mean, variance, gradOutput *Value, epsilo
 		"feature_index": int64(featureAxis),
 	}
 	return stmt.Outputs[0], stmt.Outputs[1], stmt.Outputs[2], nil
+}
+
+// GetDimensionSize returns a scalar i32 containing the runtime size of the specified dimension.
+//
+// - operand: the tensor to get the dimension size from.
+// - dimension: the axis/dimension index to query (can be negative for reverse indexing).
+//
+// This is useful for working with dynamic shapes where dimension sizes are not known at compile time.
+func GetDimensionSize(operand *Value, dimension int) (*Value, error) {
+	op := optypes.GetDimensionSize
+	fn := operand.fn
+	if fn.Returned {
+		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
+			op, fn.Name)
+	}
+
+	// Adjust negative dimension index
+	adjustedDim := dimension
+	if dimension < 0 {
+		adjustedDim = operand.shape.Rank() + dimension
+	}
+	if adjustedDim < 0 || adjustedDim >= operand.shape.Rank() {
+		return nil, errors.Errorf("dimension %d out of bounds for rank %d tensor",
+			dimension, operand.shape.Rank())
+	}
+
+	// Output is always a scalar i32
+	outputShape := shapes.Make(dtypes.Int32)
+	stmt := fn.addOp(op, outputShape, operand)
+	stmt.Attributes = map[string]any{"dimension": int64(adjustedDim)}
+	return stmt.Outputs[0], nil
+}
+
+// DynamicBroadcastInDim broadcasts the operand to a shape specified by a 1D tensor (not static dimensions).
+//
+// - operand: the tensor to broadcast.
+// - outputDimensions: a 1D tensor of i32 or i64 values specifying the target shape dimensions.
+// - broadcastDimensions: maps operand axes to output axes (like BroadcastInDim).
+//
+// This is the dynamic version of BroadcastInDim where the output shape is determined at runtime.
+func DynamicBroadcastInDim(operand *Value, outputDimensions *Value, broadcastDimensions []int) (*Value, error) {
+	op := optypes.DynamicBroadcastInDim
+	fn := operand.fn
+	if fn.Returned {
+		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
+			op, fn.Name)
+	}
+	if outputDimensions.fn != fn {
+		return nil, errors.Errorf("cannot add operation %s to function %q, because operand and outputDimensions are from different functions (%q and %q)",
+			op, fn.Name, fn.Name, outputDimensions.fn.Name)
+	}
+
+	// Validate outputDimensions is 1D tensor of integer type
+	if outputDimensions.shape.Rank() != 1 {
+		return nil, errors.Errorf("outputDimensions must be a 1D tensor, got rank %d",
+			outputDimensions.shape.Rank())
+	}
+	if !outputDimensions.shape.DType.IsInt() {
+		return nil, errors.Errorf("outputDimensions must be integer type, got %s",
+			outputDimensions.shape.DType)
+	}
+
+	// Validate broadcastDimensions length matches operand rank
+	if len(broadcastDimensions) != operand.shape.Rank() {
+		return nil, errors.Errorf("broadcastDimensions length (%d) must match operand rank (%d)",
+			len(broadcastDimensions), operand.shape.Rank())
+	}
+
+	// Create output shape - try to extract concrete dimensions if outputDimensions is a constant
+	outputRank := outputDimensions.shape.Dimensions[0]
+
+	// If outputRank is symbolic (negative), use the operand rank as fallback
+	// This is common when broadcasting within shape computation subgraphs
+	if outputRank < 0 {
+		outputRank = operand.shape.Rank()
+	}
+
+	outputShape := operand.shape.Clone()
+	outputShape.Dimensions = make([]int, outputRank)
+
+	// Try to extract constant shape values
+	concreteShape, ok := tryExtractConstantShape(fn, outputDimensions)
+	if ok {
+		// Check if all dimensions are positive (fully concrete)
+		allConcrete := true
+		for _, dim := range concreteShape {
+			if dim <= 0 {
+				allConcrete = false
+				break
+			}
+		}
+		if allConcrete {
+			// Validate that broadcast is actually valid
+			// For each operand dimension mapped via broadcastDimensions:
+			// - If operand dim is 1, it can broadcast to any target dim
+			// - If operand dim > 1, target dim must match
+			broadcastValid := true
+			for i, outputAxis := range broadcastDimensions {
+				if outputAxis >= 0 && outputAxis < len(concreteShape) {
+					operandDim := operand.shape.Dimensions[i]
+					targetDim := concreteShape[outputAxis]
+					if operandDim != 1 && operandDim != targetDim {
+						broadcastValid = false
+						break
+					}
+				}
+			}
+			if broadcastValid {
+				// Use static BroadcastInDim when shape is fully known
+				// This avoids XLA translation issues with dynamic_broadcast_in_dim
+				targetShape := operand.shape.Clone()
+				targetShape.Dimensions = concreteShape
+				return BroadcastInDim(operand, targetShape, broadcastDimensions)
+			}
+			// Broadcast is not valid with these concrete shapes
+			// Use symbolic output dimensions instead
+			for i := range outputShape.Dimensions {
+				outputShape.Dimensions[i] = -3
+			}
+			// Set bounds based on operand dimensions and extracted shape
+			outputShape.DimensionBounds = make([]int, outputRank)
+			for i := range outputShape.DimensionBounds {
+				bound := 2048 // conservative default
+				if i < len(concreteShape) && concreteShape[i] > 0 {
+					bound = concreteShape[i]
+				}
+				outputShape.DimensionBounds[i] = bound
+			}
+		} else {
+			// Use concrete dimensions from the constant
+			copy(outputShape.Dimensions, concreteShape)
+		}
+	} else {
+		// tryExtractConstantShape failed - try partial extraction
+		// This handles the case where some dimensions are extractable (e.g., from get_dimension_size)
+		// but others are runtime-computed (e.g., from reduce operations)
+
+		// First, check if outputDimensions comes from a Concatenate operation
+		// and try partial extraction
+		var partialShape []int
+		hasPartialShape := false
+		for _, stmt := range fn.Statements {
+			for _, output := range stmt.Outputs {
+				if output == outputDimensions && stmt.OpType == optypes.Concatenate {
+					partial, _, anyOk := tryExtractConcatenatedShapePartial(fn, stmt)
+					if anyOk {
+						partialShape = partial
+						hasPartialShape = true
+					}
+					break
+				}
+			}
+			if hasPartialShape {
+				break
+			}
+		}
+
+		// If we got partial results, try to fill in the unknown dimensions
+		if hasPartialShape && len(partialShape) == outputRank {
+			// Look for a bound for unknown dimensions
+			// Use the model input sequence length (typically 128) as a reasonable bound
+			defaultBound := 128 // Common sequence length for NLP models
+
+			// Fill in unknown dimensions with the bound
+			filledShape := make([]int, len(partialShape))
+			for i, dim := range partialShape {
+				if dim > 0 {
+					filledShape[i] = dim
+				} else {
+					// Unknown dimension - use bound
+					filledShape[i] = defaultBound
+				}
+			}
+
+			// If we filled in values, try using static broadcast
+			// This is safe because XLA will use the actual runtime values for the dynamic computation
+			// but our static shape gives it a compilation target
+
+			// Validate broadcast compatibility
+			broadcastValid := true
+			for i, outputAxis := range broadcastDimensions {
+				if outputAxis >= 0 && outputAxis < len(filledShape) {
+					operandDim := operand.shape.Dimensions[i]
+					targetDim := filledShape[outputAxis]
+					if operandDim > 0 && operandDim != 1 && operandDim != targetDim {
+						broadcastValid = false
+						break
+					}
+				}
+			}
+
+			if broadcastValid {
+				// Use static broadcast with the filled shape
+				targetShape := operand.shape.Clone()
+				targetShape.Dimensions = filledShape
+				return BroadcastInDim(operand, targetShape, broadcastDimensions)
+			}
+		}
+
+		// Fallback: XLA requires bounded dimensions
+		// Check if operand has all concrete dimensions
+		operandIsConcrete := true
+		for _, dim := range operand.shape.Dimensions {
+			if dim < 0 {
+				operandIsConcrete = false
+				break
+			}
+		}
+
+		// Check if any operand dimension is 1 - this means broadcast is potentially expanding
+		hasBroadcastableDim := false
+		for _, dim := range operand.shape.Dimensions {
+			if dim == 1 {
+				hasBroadcastableDim = true
+				break
+			}
+		}
+
+		if operandIsConcrete && outputRank == len(operand.shape.Dimensions) && !hasBroadcastableDim {
+			// Operand is concrete with no 1-dimensions, and ranks match - use operand dimensions as output
+			// This handles the case where broadcast is essentially a no-op
+			copy(outputShape.Dimensions, operand.shape.Dimensions)
+		} else {
+			// Use DimUnknown (-3) for all dimensions since they're runtime-determined
+			for i := range outputShape.Dimensions {
+				outputShape.Dimensions[i] = -3
+			}
+			// Set bounds to ensure bounded dynamism
+			// For broadcast, we can use the input dimensions mapped through broadcastDimensions
+			// and a conservative upper bound for other dimensions
+			outputShape.DimensionBounds = make([]int, outputRank)
+			maxDim := 1
+			for _, dim := range operand.shape.Dimensions {
+				if dim > 0 && dim > maxDim {
+					maxDim = dim
+				}
+			}
+			// Conservative: set bounds to a reasonable upper limit
+			// For shape tensors and small broadcasts, use a minimum of 128 (common sequence length)
+			// For larger tensors, use the largest input dimension * output rank
+			conservativeBound := maxDim * outputRank
+			if conservativeBound < 2048 {
+				conservativeBound = 2048 // Minimum bound for typical sequence lengths
+			}
+			if conservativeBound > 65536 {
+				conservativeBound = 65536 // Cap to prevent excessive memory allocation
+			}
+			for i := range outputShape.DimensionBounds {
+				outputShape.DimensionBounds[i] = conservativeBound
+			}
+		}
+	}
+
+	stmt := fn.addOp(op, outputShape, operand, outputDimensions)
+	stmt.Attributes = map[string]any{
+		"broadcast_dimensions": intSliceToArrayI64StableHLO(broadcastDimensions),
+	}
+	return stmt.Outputs[0], nil
+}
+
+// factorize finds n factors of value that are as close to each other as possible
+func factorize(value int, n int) []int {
+	if n == 1 {
+		return []int{value}
+	}
+	if n == 0 {
+		return []int{}
+	}
+
+	// Start with n factors each equal to the nth root
+	factors := make([]int, n)
+	target := int(math.Pow(float64(value), 1.0/float64(n)))
+	if target < 1 {
+		target = 1
+	}
+
+	// Find the largest factor <= target that divides value
+	for i := 0; i < n-1; i++ {
+		// Find best factor starting from target and going down
+		bestFactor := 1
+		for f := target; f >= 1; f-- {
+			if value%f == 0 {
+				bestFactor = f
+				break
+			}
+		}
+		factors[i] = bestFactor
+		value = value / bestFactor
+	}
+	// Last factor gets all remaining
+	factors[n-1] = value
+
+	return factors
+}
+
+// DynamicReshape reshapes the operand to a shape specified by a 1D tensor.
+//
+// - operand: the tensor to reshape.
+// - outputShape: a 1D tensor of i32 or i64 values specifying the target shape dimensions.
+//
+// This is the dynamic version of Reshape where the output shape is determined at runtime.
+// The total number of elements must remain the same.
+func DynamicReshape(operand *Value, outputShape *Value) (*Value, error) {
+	op := optypes.DynamicReshape
+	fn := operand.fn
+	if fn.Returned {
+		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
+			op, fn.Name)
+	}
+	if outputShape.fn != fn {
+		return nil, errors.Errorf("cannot add operation %s to function %q, because operand and outputShape are from different functions (%q and %q)",
+			op, fn.Name, fn.Name, outputShape.fn.Name)
+	}
+
+	// Validate outputShape is 1D tensor of integer type
+	if outputShape.shape.Rank() != 1 {
+		return nil, errors.Errorf("outputShape must be a 1D tensor, got rank %d",
+			outputShape.shape.Rank())
+	}
+	if !outputShape.shape.DType.IsInt() {
+		return nil, errors.Errorf("outputShape must be integer type, got %s",
+			outputShape.shape.DType)
+	}
+
+	// Create output shape - try to extract concrete dimensions if outputShape is a constant
+	outputRank := outputShape.shape.Dimensions[0]
+	resultShape := operand.shape.Clone()
+	resultShape.Dimensions = make([]int, outputRank)
+
+	// Try to extract constant shape values
+	concreteShape, ok := tryExtractConstantShape(fn, outputShape)
+	if ok {
+		// Check if all dimensions are concrete (positive) or need to be inferred (-1)
+		hasInferDim := false
+		inferDimIndex := -1
+		knownProduct := 1
+		for i, dim := range concreteShape {
+			if dim == -1 {
+				hasInferDim = true
+				inferDimIndex = i
+			} else if dim > 0 {
+				knownProduct *= dim
+			} else if dim == 0 {
+				// 0 means keep the original dimension size, but we can't resolve that statically
+				// if the input dimension is symbolic
+				if i < len(operand.shape.Dimensions) && operand.shape.Dimensions[i] > 0 {
+					concreteShape[i] = operand.shape.Dimensions[i]
+					knownProduct *= concreteShape[i]
+				} else {
+					hasInferDim = true // treat as dynamic
+				}
+			}
+		}
+
+		// Try to resolve -1 dimension using input tensor size
+		if hasInferDim && inferDimIndex >= 0 {
+			inputSize := operand.shape.Size()
+			if inputSize > 0 && knownProduct > 0 {
+				// We can compute the inferred dimension
+				inferredDim := inputSize / knownProduct
+				concreteShape[inferDimIndex] = inferredDim
+				hasInferDim = false // We resolved it
+			}
+		}
+
+		if hasInferDim {
+			// We have unresolvable dimensions - use static Reshape with computed dimensions
+			// instead of dynamic_reshape which XLA can't compile with unbounded output
+			inputSize := operand.shape.Size()
+
+			// Build static dimensions: use extracted values where available, compute remaining
+			staticDims := make([]int, outputRank)
+			knownProduct := 1
+			inferIdx := -1
+			for i, dim := range concreteShape {
+				if dim > 0 {
+					staticDims[i] = dim
+					knownProduct *= dim
+				} else if dim == -1 {
+					inferIdx = i // Will be computed
+				} else {
+					// 0 or other unknown - use default
+					staticDims[i] = 128
+					knownProduct *= 128
+				}
+			}
+
+			// Compute the inferred dimension if possible
+			if inferIdx >= 0 && inputSize > 0 && knownProduct > 0 {
+				inferredDim := inputSize / knownProduct
+				if inferredDim > 0 {
+					staticDims[inferIdx] = inferredDim
+				} else {
+					// Can't compute - use reasonable default
+					staticDims[inferIdx] = 1
+				}
+			}
+
+			// Verify product matches input size
+			outputSize := 1
+			for _, dim := range staticDims {
+				outputSize *= dim
+			}
+
+			if inputSize > 0 && outputSize != inputSize {
+				// Fall back to using input dimensions distributed across output
+				// This is a heuristic but better than unbounded dimensions
+				for i := range staticDims {
+					if i < len(operand.shape.Dimensions) && operand.shape.Dimensions[i] > 0 {
+						staticDims[i] = operand.shape.Dimensions[i]
+					}
+				}
+			}
+
+			targetShape := operand.shape.Clone()
+			targetShape.Dimensions = staticDims
+			targetShape.DimensionBounds = nil
+			return Reshape(operand, targetShape)
+		} else {
+			// All extracted dimensions are concrete - validate sizes match before using static Reshape
+			inputSize := operand.shape.Size()
+			outputSize := 1
+			for _, dim := range concreteShape {
+				outputSize *= dim
+			}
+
+			// If input has symbolic dimensions, we can't validate size match but should still use extracted shape
+			inputHasSymbolic := false
+			for _, dim := range operand.shape.Dimensions {
+				if dim < 0 {
+					inputHasSymbolic = true
+					break
+				}
+			}
+
+			if inputHasSymbolic {
+				// Input has symbolic dimensions - trust the extracted output shape
+				// This is important for ScatterND and other ops that create symbolic intermediate tensors
+				targetShape := operand.shape.Clone()
+				targetShape.Dimensions = concreteShape
+				return Reshape(operand, targetShape)
+			}
+
+			if inputSize > 0 && outputSize > 0 && inputSize == outputSize {
+				// Sizes match - use static Reshape
+				// This avoids XLA translation issues with dynamic_reshape
+				targetShape := operand.shape.Clone()
+				targetShape.Dimensions = concreteShape
+				return Reshape(operand, targetShape)
+			}
+			// Sizes don't match - the extracted shape is wrong for this operand
+			// Use static reshape with computed dimensions based on input
+
+			// Try to preserve as much of the extracted shape as possible while fixing the mismatch
+			staticDims := make([]int, outputRank)
+			copy(staticDims, concreteShape)
+
+			// If we have one dimension that's clearly wrong, try to fix it
+			// by computing what it should be based on the input size
+			if inputSize > 0 {
+				knownProduct := 1
+				unknownIdx := -1
+				for i, dim := range staticDims {
+					if dim > 0 && dim <= inputSize {
+						knownProduct *= dim
+					} else {
+						unknownIdx = i
+					}
+				}
+				if unknownIdx >= 0 && knownProduct > 0 {
+					inferredDim := inputSize / knownProduct
+					if inferredDim > 0 {
+						staticDims[unknownIdx] = inferredDim
+					}
+				}
+			}
+
+			// Verify the new shape matches
+			newOutputSize := 1
+			for _, dim := range staticDims {
+				if dim > 0 {
+					newOutputSize *= dim
+				}
+			}
+
+			if newOutputSize == inputSize {
+				targetShape := operand.shape.Clone()
+				targetShape.Dimensions = staticDims
+				return Reshape(operand, targetShape)
+			}
+
+			// Still mismatched - try to compute a valid shape that preserves input size
+
+			// Strategy: use as many extracted dims as possible while ensuring product = inputSize
+			// Keep dimensions that are factors of inputSize, adjust the rest
+			validDims := make([]int, outputRank)
+			remainingSize := inputSize
+			dimsToInfer := 0
+
+			// First pass: identify which extracted dims are usable
+			for i, dim := range staticDims {
+				if dim > 0 && dim <= remainingSize && remainingSize%dim == 0 {
+					validDims[i] = dim
+					remainingSize /= dim
+				} else {
+					validDims[i] = 0 // Mark for inference
+					dimsToInfer++
+				}
+			}
+
+			// Second pass: distribute remaining size across unmarked dims
+			if dimsToInfer > 0 && remainingSize > 0 {
+				// Try to find reasonable factorization
+				for i := range validDims {
+					if validDims[i] == 0 {
+						if dimsToInfer == 1 {
+							// Last dim gets the rest
+							validDims[i] = remainingSize
+							remainingSize = 1
+						} else {
+							// Use 1 for this dim
+							validDims[i] = 1
+						}
+						dimsToInfer--
+					}
+				}
+			}
+
+			// Verify product
+			checkProduct := 1
+			for _, dim := range validDims {
+				checkProduct *= dim
+			}
+
+			if checkProduct != inputSize {
+				// Still wrong - use a simple heuristic
+				// If input is [a, b] and output is rank r, try to preserve structure
+				if outputRank == len(operand.shape.Dimensions) {
+					copy(validDims, operand.shape.Dimensions)
+				} else if outputRank > len(operand.shape.Dimensions) {
+					// Add 1s at the beginning
+					for i := range validDims {
+						if i < outputRank-len(operand.shape.Dimensions) {
+							validDims[i] = 1
+						} else {
+							srcIdx := i - (outputRank - len(operand.shape.Dimensions))
+							if srcIdx < len(operand.shape.Dimensions) && operand.shape.Dimensions[srcIdx] > 0 {
+								validDims[i] = operand.shape.Dimensions[srcIdx]
+							} else {
+								validDims[i] = 1
+							}
+						}
+					}
+				} else {
+					// Fewer dims - merge
+					validDims[outputRank-1] = inputSize
+					for i := 0; i < outputRank-1; i++ {
+						validDims[i] = 1
+					}
+				}
+			}
+
+			targetShape := operand.shape.Clone()
+			targetShape.Dimensions = validDims
+			return Reshape(operand, targetShape)
+		}
+	} else {
+		// tryExtractConstantShape failed - try partial extraction first
+		// This handles cases where some dimensions come from get_dimension_size (extractable)
+		// and others from reduce operations (not extractable)
+		var partialShape []int
+		hasPartialShape := false
+		for _, stmt := range fn.Statements {
+			for _, output := range stmt.Outputs {
+				if output == outputShape && stmt.OpType == optypes.Concatenate {
+					partial, _, anyOk := tryExtractConcatenatedShapePartial(fn, stmt)
+					if anyOk {
+						partialShape = partial
+						hasPartialShape = true
+					}
+					break
+				}
+			}
+			if hasPartialShape {
+				break
+			}
+		}
+
+		// Calculate input size
+		inputSize := 1
+		hasConcreteDim := false
+		for _, dim := range operand.shape.Dimensions {
+			if dim > 0 {
+				inputSize *= dim
+				hasConcreteDim = true
+			}
+		}
+		if !hasConcreteDim && len(operand.shape.DimensionBounds) > 0 {
+			inputSize = 1
+			for _, bound := range operand.shape.DimensionBounds {
+				if bound > 0 {
+					if inputSize > 65536/bound {
+						inputSize = 65536
+						break
+					}
+					inputSize *= bound
+				}
+			}
+		}
+
+		// If we got partial results, use them to compute the shape
+		if hasPartialShape && len(partialShape) == outputRank {
+			staticDims := make([]int, outputRank)
+			knownProduct := 1
+			unknownCount := 0
+			unknownIdx := -1
+			for i, dim := range partialShape {
+				if dim > 0 {
+					staticDims[i] = dim
+					knownProduct *= dim
+				} else {
+					unknownCount++
+					unknownIdx = i
+				}
+			}
+
+			// If only one unknown dimension and we know the input size, compute it
+			if unknownCount == 1 && inputSize > 0 && knownProduct > 0 {
+				inferredDim := inputSize / knownProduct
+				if inferredDim > 0 {
+					staticDims[unknownIdx] = inferredDim
+				} else {
+					staticDims[unknownIdx] = 1
+				}
+			} else if unknownCount > 0 {
+				// Multiple unknowns - use reasonable defaults
+				for i := range staticDims {
+					if staticDims[i] == 0 {
+						staticDims[i] = 128 // Default for unknown dimensions
+					}
+				}
+			}
+
+			// Verify size match
+			outputSize := 1
+			for _, dim := range staticDims {
+				outputSize *= dim
+			}
+
+			if inputSize > 0 && outputSize == inputSize {
+				targetShape := operand.shape.Clone()
+				targetShape.Dimensions = staticDims
+				targetShape.DimensionBounds = nil
+				return Reshape(operand, targetShape)
+			}
+		}
+
+		// Fallback: shape is truly dynamic, use conservative static dimensions
+
+		bound := 0
+		for _, dim := range operand.shape.Dimensions {
+			if dim > 0 && dim > bound && dim <= 1024 {
+				bound = dim
+			}
+		}
+		if bound == 0 && len(operand.shape.DimensionBounds) > 0 {
+			for _, b := range operand.shape.DimensionBounds {
+				if b > 0 && b > bound && b <= 1024 {
+					bound = b
+				}
+			}
+		}
+		if bound == 0 {
+			bound = 128 // Smaller default - 2048 caused dimension propagation issues
+		}
+
+		staticDims := make([]int, outputRank)
+		if outputRank == len(operand.shape.Dimensions) {
+			for i := range staticDims {
+				if i < len(operand.shape.Dimensions) && operand.shape.Dimensions[i] > 0 {
+					staticDims[i] = operand.shape.Dimensions[i]
+				} else if i < len(operand.shape.DimensionBounds) && operand.shape.DimensionBounds[i] > 0 {
+					staticDims[i] = operand.shape.DimensionBounds[i]
+				} else {
+					staticDims[i] = bound
+				}
+			}
+		} else {
+			for i := range staticDims {
+				staticDims[i] = bound
+			}
+		}
+
+
+		// Use static Reshape to avoid XLA translation issues
+		targetShape := operand.shape.Clone()
+		targetShape.Dimensions = staticDims
+		targetShape.DimensionBounds = nil // Clear bounds since we're using concrete dims
+		return Reshape(operand, targetShape)
+	}
+
+	stmt := fn.addOp(op, resultShape, operand, outputShape)
+	return stmt.Outputs[0], nil
+}
+
+// While executes body repeatedly while condition returns true.
+//
+// The While operation implements a loop that continues executing the body function
+// as long as the condition function returns true.
+//
+// Parameters:
+//   - condFn: A function that takes the current state tuple and returns a scalar boolean.
+//     Created with Builder.NewClosure. Must have signature (state...) -> scalar_bool
+//   - bodyFn: A function that takes the current state tuple and returns the updated state tuple.
+//     Created with Builder.NewClosure. Must have signature (state...) -> (state...)
+//     The output types must match the input types.
+//   - initialStates: Initial values for the loop state.
+//
+// Returns:
+//   - The final state values after the loop terminates.
+//
+// The loop executes as follows:
+//  1. Evaluate condFn with current state
+//  2. If condition is false, return current state
+//  3. Evaluate bodyFn with current state to get new state
+//  4. Repeat from step 1
+//
+// Example (count from 0 to 10):
+//
+//	counter, _ := fn.ConstantFromScalar(int32(0))
+//	condFn := fn.Closure()
+//	c, _ := condFn.Input(counter.Shape())
+//	limit, _ := condFn.ConstantFromScalar(int32(10))
+//	cond, _ := Compare(c, limit, ComparisonDirectionLT)
+//	condFn.Return(cond)
+//
+//	bodyFn := fn.Closure()
+//	c, _ = bodyFn.Input(counter.Shape())
+//	one, _ := bodyFn.ConstantFromScalar(int32(1))
+//	next, _ := Add(c, one)
+//	bodyFn.Return(next)
+//
+//	result, err := While(condFn, bodyFn, counter)
+func While(condFn, bodyFn *Function, initialStates ...*Value) ([]*Value, error) {
+	op := optypes.While
+	if len(initialStates) == 0 {
+		return nil, errors.New("While requires at least one initial state value")
+	}
+	fn := initialStates[0].fn
+	if fn.Returned {
+		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
+			op, fn.Name)
+	}
+
+	// Validate all initial states are from the same function
+	for i, state := range initialStates {
+		if state.fn != fn {
+			return nil, errors.Errorf("cannot add operation %s to function %q, because initialStates[%d] is from different function (%q and %q)",
+				op, fn.Name, i, state.fn.Name, fn.Name)
+		}
+	}
+
+	// Validate closure functions are children of the current function
+	if condFn.Parent != fn {
+		return nil, errors.Errorf("cannot add operation %s because condFn is not a StableHLO closure of %s",
+			op, fn.Name)
+	}
+	if bodyFn.Parent != fn {
+		return nil, errors.Errorf("cannot add operation %s because bodyFn is not a StableHLO closure of %s",
+			op, fn.Name)
+	}
+
+	// Perform shape inference
+	outputsShapes, err := shapeinference.While(
+		valuesToShapes(initialStates),
+		valuesToShapes(condFn.Inputs), valuesToShapes(condFn.Outputs),
+		valuesToShapes(bodyFn.Inputs), valuesToShapes(bodyFn.Outputs))
+	if err != nil {
+		return nil, err
+	}
+
+	// Create the statement
+	stmt := fn.addMultiOp(op, outputsShapes, initialStates)
+	// Note: AddFunctionParameter processes parameters in alphabetical order internally,
+	// so "body" comes before "cond" alphabetically. To get the correct MLIR region order
+	// (body first, cond second), we add them as "cond" then "body".
+	stmt.AddFunctionParameter("cond", condFn)
+	stmt.AddFunctionParameter("body", bodyFn)
+
+	return stmt.Outputs, nil
 }

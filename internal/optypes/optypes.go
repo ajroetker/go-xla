@@ -83,6 +83,7 @@ const (
 	Sign
 	Sine
 	Slice
+	Sort
 	Sqrt
 	Subtract
 	Tan
