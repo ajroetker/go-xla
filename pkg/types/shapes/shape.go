@@ -82,9 +82,10 @@ import (
 //
 // Use Make to create a new shape. See example in package shapes documentation.
 type Shape struct {
-	DType       dtypes.DType
-	Dimensions  []int
-	TupleShapes []Shape // Shapes of the tuple, if this is a tuple.
+	DType        dtypes.DType
+	Dimensions   []int
+	TupleShapes  []Shape // Shapes of the tuple, if this is a tuple.
+	Quantization *Quantization
 }
 
 // Make returns a Shape structure filled with the values given.
