@@ -1556,3 +1556,20 @@ func BatchNormGradient(operand, scale, mean, variance, gradOutput *Value, epsilo
 	}
 	return stmt.Outputs[0], stmt.Outputs[1], stmt.Outputs[2], nil
 }
+
+// UniformQuantize the operand to a static quantized data type.
+// That means the zero-point and scale of the quantization must be known at "compile" time.
+//
+// The dimensions of the quantizedShape is ignored, and the output will use the dimensions of the operand,
+// but the DType and quantization parameters of the quantizedShape.
+func UniformQuantize(operand *Value, quantizedShape shapes.Shape) (*Value, error) {
+	op := optypes.UniformDequantize
+	fn := operand.fn
+	if fn.Returned {
+		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
+			op, fn.Name)
+	}
+	quantizedShape.Dimensions = slices.Clone(operand.Shape().Dimensions)
+	stmt := fn.addOp(op, quantizedShape, operand)
+	return stmt.Outputs[0], nil
+}
