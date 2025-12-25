@@ -2654,9 +2654,9 @@ func DynamicBroadcastInDim(operand *Value, outputDimensions *Value, broadcastDim
 			// This handles the case where broadcast is essentially a no-op
 			copy(outputShape.Dimensions, operand.shape.Dimensions)
 		} else {
-			// Use DimUnknown (-3) for all dimensions since they're runtime-determined
+			// Use dynamic dimension marker (-1) for all dimensions since they're runtime-determined
 			for i := range outputShape.Dimensions {
-				outputShape.Dimensions[i] = -3
+				outputShape.Dimensions[i] = -1
 			}
 			// Set bounds to ensure bounded dynamism
 			// For broadcast, we can use the input dimensions mapped through broadcastDimensions

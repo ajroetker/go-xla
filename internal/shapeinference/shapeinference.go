@@ -374,7 +374,7 @@ func UnaryOp(opType optypes.OpType, operand shapes.Shape) (output shapes.Shape, 
 // - They have the same rank
 // - They have the same dtype
 // - For each dimension, either:
-//   - Both are symbolic (negative, typically -3 for DimUnknown)
+//   - Both are symbolic (negative values indicate dynamic dimensions)
 //   - One or both is symbolic (allows static to match symbolic at runtime)
 //   - Both are static and equal
 func shapesCompatible(a, b shapes.Shape) bool {
