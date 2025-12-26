@@ -1570,8 +1570,10 @@ func BatchNormGradient(operand, scale, mean, variance, gradOutput *Value, epsilo
 //
 // The dimensions of the quantizedShape is ignored, and the output will use the dimensions of the operand,
 // but the DType and quantization parameters of the quantizedShape.
+//
+// Note: **EXPERIMENTAL**, this operation is not supported by standard CPU PJRT.
 func UniformQuantize(operand *Value, quantizedShape shapes.Shape) (*Value, error) {
-	op := optypes.UniformDequantize
+	op := optypes.UniformQuantize
 	fn := operand.fn
 	if fn.Returned {
 		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
@@ -1579,5 +1581,27 @@ func UniformQuantize(operand *Value, quantizedShape shapes.Shape) (*Value, error
 	}
 	quantizedShape.Dimensions = slices.Clone(operand.Shape().Dimensions)
 	stmt := fn.addOp(op, quantizedShape, operand)
+	return stmt.Outputs[0], nil
+}
+
+// UniformDequantize takes a value with quantization and returns the value at its "expressed" dtype.
+// The output will have the same dimensions as the operand, but with the expressed dtype from the quantization
+// metadata and no quantization.
+//
+// Note: **EXPERIMENTAL**, this operation is not supported by standard CPU PJRT.
+func UniformDequantize(operand *Value) (*Value, error) {
+	op := optypes.UniformDequantize
+	fn := operand.fn
+	if fn.Returned {
+		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
+			op, fn.Name)
+	}
+	if operand.shape.Quantization == nil {
+		return nil, errors.Errorf("UniformDequantize: operand %s does not have quantization metadata", operand.shape)
+	}
+	outputShape := operand.shape.Clone()
+	outputShape.DType = operand.shape.Quantization.ExpressedType
+	outputShape.Quantization = nil
+	stmt := fn.addOp(op, outputShape, operand)
 	return stmt.Outputs[0], nil
 }
