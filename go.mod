@@ -18,7 +18,6 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/pascaldekloe/name v1.0.0 // indirect
 	github.com/streadway/quantile v0.0.0-20220407130108-4246515d968d // indirect
-	github.com/stretchr/testify v1.11.1 // indirect
 	golang.org/x/mod v0.29.0 // indirect
 	golang.org/x/sync v0.17.0 // indirect
 	golang.org/x/sys v0.39.0 // indirect
@@ -26,3 +25,5 @@ require (
 )
 
 tool github.com/dmarkham/enumer
+
+replace github.com/janpfeifer/go-benchmarks => github.com/ajroetker/go-benchmarks v0.0.0-20251227191922-60d02b7acb0c
