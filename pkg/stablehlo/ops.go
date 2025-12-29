@@ -2514,6 +2514,139 @@ func DynamicReshape(operand *Value, outputShape *Value) (*Value, error) {
 	}
 }
 
+// SimpleDynamicReshape reshapes the operand to a shape specified by a 1D tensor,
+// using caller-provided bounds for dimensions that are not known at compile time.
+//
+// This is a simplified version of DynamicReshape that doesn't attempt to extract
+// or infer dimensions from the shape tensor. Instead, it uses the provided bounds
+// directly to create bounded dynamic dimensions.
+//
+// Parameters:
+//   - operand: the tensor to reshape.
+//   - outputShape: a 1D tensor of i32 or i64 values specifying the target shape dimensions.
+//   - bounds: dimension bounds for the output shape. Must have length equal to output rank.
+//     Use the actual dimension value for known dimensions, or an upper bound for dynamic ones.
+//
+// This function is preferred when:
+//   - The caller knows the dimension bounds (e.g., from model configuration)
+//   - The shape is data-dependent (e.g., NonZero output)
+//   - You want predictable behavior without extraction heuristics
+func SimpleDynamicReshape(operand *Value, outputShape *Value, bounds []int) (*Value, error) {
+	op := optypes.DynamicReshape
+	fn := operand.fn
+	if fn.Returned {
+		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
+			op, fn.Name)
+	}
+	if outputShape.fn != fn {
+		return nil, errors.Errorf("cannot add operation %s to function %q, because operand and outputShape are from different functions",
+			op, fn.Name)
+	}
+
+	// Validate outputShape is 1D tensor of integer type
+	if outputShape.shape.Rank() != 1 {
+		return nil, errors.Errorf("outputShape must be a 1D tensor, got rank %d",
+			outputShape.shape.Rank())
+	}
+	if !outputShape.shape.DType.IsInt() {
+		return nil, errors.Errorf("outputShape must be integer type, got %s",
+			outputShape.shape.DType)
+	}
+
+	// Get output rank from the shape tensor
+	outputRank := outputShape.shape.Dimensions[0]
+	if outputRank < 0 {
+		return nil, errors.Errorf("outputShape tensor has dynamic size, cannot determine output rank")
+	}
+
+	// Validate bounds length
+	if len(bounds) != outputRank {
+		return nil, errors.Errorf("bounds length (%d) must match output rank (%d)",
+			len(bounds), outputRank)
+	}
+
+	// Create output shape with dynamic dimensions and caller-provided bounds
+	resultShape := operand.shape.Clone()
+	resultShape.Dimensions = make([]int, outputRank)
+	resultShape.DimensionBounds = make([]int, outputRank)
+	for i := 0; i < outputRank; i++ {
+		resultShape.Dimensions[i] = shapes.DimUnknown // Dynamic
+		resultShape.DimensionBounds[i] = bounds[i]
+	}
+
+	stmt := fn.addOp(op, resultShape, operand, outputShape)
+	return stmt.Outputs[0], nil
+}
+
+// SimpleDynamicBroadcastInDim broadcasts the operand to a shape specified by a 1D tensor,
+// using caller-provided bounds for dimensions that are not known at compile time.
+//
+// This is a simplified version of DynamicBroadcastInDim that doesn't attempt to extract
+// or infer dimensions. Instead, it uses the provided bounds directly.
+//
+// Parameters:
+//   - operand: the tensor to broadcast.
+//   - outputDimensions: a 1D tensor of i32 or i64 values specifying the target shape.
+//   - broadcastDimensions: maps operand axes to output axes (like BroadcastInDim).
+//   - bounds: dimension bounds for the output shape. Must have length equal to output rank.
+//
+// This function is preferred when the caller knows the dimension bounds.
+func SimpleDynamicBroadcastInDim(operand *Value, outputDimensions *Value, broadcastDimensions []int, bounds []int) (*Value, error) {
+	op := optypes.DynamicBroadcastInDim
+	fn := operand.fn
+	if fn.Returned {
+		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
+			op, fn.Name)
+	}
+	if outputDimensions.fn != fn {
+		return nil, errors.Errorf("cannot add operation %s to function %q, because operand and outputDimensions are from different functions",
+			op, fn.Name)
+	}
+
+	// Validate outputDimensions is 1D tensor of integer type
+	if outputDimensions.shape.Rank() != 1 {
+		return nil, errors.Errorf("outputDimensions must be a 1D tensor, got rank %d",
+			outputDimensions.shape.Rank())
+	}
+	if !outputDimensions.shape.DType.IsInt() {
+		return nil, errors.Errorf("outputDimensions must be integer type, got %s",
+			outputDimensions.shape.DType)
+	}
+
+	// Validate broadcastDimensions length matches operand rank
+	if len(broadcastDimensions) != operand.shape.Rank() {
+		return nil, errors.Errorf("broadcastDimensions length (%d) must match operand rank (%d)",
+			len(broadcastDimensions), operand.shape.Rank())
+	}
+
+	// Get output rank from the dimensions tensor
+	outputRank := outputDimensions.shape.Dimensions[0]
+	if outputRank < 0 {
+		return nil, errors.Errorf("outputDimensions tensor has dynamic size, cannot determine output rank")
+	}
+
+	// Validate bounds length
+	if len(bounds) != outputRank {
+		return nil, errors.Errorf("bounds length (%d) must match output rank (%d)",
+			len(bounds), outputRank)
+	}
+
+	// Create output shape with dynamic dimensions and caller-provided bounds
+	outputShape := operand.shape.Clone()
+	outputShape.Dimensions = make([]int, outputRank)
+	outputShape.DimensionBounds = make([]int, outputRank)
+	for i := 0; i < outputRank; i++ {
+		outputShape.Dimensions[i] = shapes.DimUnknown // Dynamic
+		outputShape.DimensionBounds[i] = bounds[i]
+	}
+
+	stmt := fn.addOp(op, outputShape, operand, outputDimensions)
+	stmt.Attributes = map[string]any{
+		"broadcast_dimensions": intSliceToArrayI64StableHLO(broadcastDimensions),
+	}
+	return stmt.Outputs[0], nil
+}
+
 // While executes body repeatedly while condition returns true.
 //
 // The While operation implements a loop that continues executing the body function
