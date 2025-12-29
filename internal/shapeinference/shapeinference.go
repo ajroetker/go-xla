@@ -224,8 +224,8 @@ func binaryOpImpl(opType optypes.OpType, lhsShape, rhsShape shapes.Shape) (outpu
 		case rhsDim == shapes.DimUnknown && lhsDim == 1:
 			// Right is dynamic, left broadcasts
 			output.Dimensions[axis] = rhsDim
-		case lhsDim > 0 && rhsDim > 0:
-			// Both static - use existing max logic for broadcasting
+		case lhsDim >= 0 && rhsDim >= 0:
+			// Both static (including zero-dimension tensors) - use existing max logic for broadcasting
 			if lhsDim != 1 && rhsDim != 1 && lhsDim != rhsDim {
 				err = errors.Errorf("dimension of axis #%d doesn't match and cannot be broadcast for BinaryOp (%s), got shapes %s and %s",
 					axis, opType, lhsShape, rhsShape)
