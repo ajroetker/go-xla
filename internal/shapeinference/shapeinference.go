@@ -210,32 +210,15 @@ func binaryOpImpl(opType optypes.OpType, lhsShape, rhsShape shapes.Shape) (outpu
 	}
 	output = lhsShape.Clone()
 
-	// Determine if we need to track bounds
-	needsBounds := len(lhsShape.DimensionBounds) > 0 || len(rhsShape.DimensionBounds) > 0
-
 	for axis := range output.Rank() {
 		lhsDim := lhsShape.Dimensions[axis]
 		rhsDim := rhsShape.Dimensions[axis]
 
-		// Get bounds for each side
-		lhsBound := 0
-		if axis < len(lhsShape.DimensionBounds) {
-			lhsBound = lhsShape.DimensionBounds[axis]
-		}
-		rhsBound := 0
-		if axis < len(rhsShape.DimensionBounds) {
-			rhsBound = rhsShape.DimensionBounds[axis]
-		}
-
 		// Handle dynamic dimensions (DimUnknown)
 		switch {
 		case lhsDim == shapes.DimUnknown && rhsDim == shapes.DimUnknown:
-			// Both dynamic - result is unknown, merge bounds
+			// Both dynamic - result is unknown
 			output.Dimensions[axis] = shapes.DimUnknown
-			if needsBounds && axis < len(output.DimensionBounds) {
-				// Use maximum of both bounds
-				output.DimensionBounds[axis] = max(lhsBound, rhsBound)
-			}
 		case lhsDim >= 0 && rhsDim >= 0:
 			// Both static (including zero-dimension tensors) - use existing max logic for broadcasting
 			if lhsDim != 1 && rhsDim != 1 && lhsDim != rhsDim {
@@ -244,41 +227,17 @@ func binaryOpImpl(opType optypes.OpType, lhsShape, rhsShape shapes.Shape) (outpu
 				return
 			}
 			output.Dimensions[axis] = max(lhsDim, rhsDim)
-			// Clear bounds for static dimensions
-			if len(output.DimensionBounds) > axis {
-				output.DimensionBounds[axis] = 0
-			}
 		case lhsDim < 0 && rhsDim > 1:
 			// Dynamic vs concrete > 1: use concrete (dynamic must be compatible)
 			output.Dimensions[axis] = rhsDim
-			// Clear bounds since we're now static
-			if len(output.DimensionBounds) > axis {
-				output.DimensionBounds[axis] = 0
-			}
 		case rhsDim < 0 && lhsDim > 1:
 			// Concrete > 1 vs dynamic: use concrete
 			output.Dimensions[axis] = lhsDim
-			// Clear bounds since we're now static
-			if len(output.DimensionBounds) > axis {
-				output.DimensionBounds[axis] = 0
-			}
 		default:
 			err = errors.Errorf("incompatible dynamic dimensions at axis %d: %d vs %d for BinaryOp (%s)",
 				axis, lhsDim, rhsDim, opType)
 			return
 		}
-	}
-
-	// Clean up DimensionBounds if all are zero
-	allZero := true
-	for _, b := range output.DimensionBounds {
-		if b != 0 {
-			allZero = false
-			break
-		}
-	}
-	if allZero {
-		output.DimensionBounds = nil
 	}
 
 	return
