@@ -184,7 +184,7 @@ func TestWhile(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for shape mismatch, got nil")
 		}
-		if !strings.Contains(err.Error(), "must match") {
+		if !strings.Contains(err.Error(), "must be compatible") {
 			t.Fatalf("expected error about shape mismatch, got: %v", err)
 		}
 	})
