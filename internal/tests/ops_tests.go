@@ -39,12 +39,12 @@ func must2[T1, T2 any](value1 T1, value2 T2, err error) (T1, T2) {
 
 // withLines prefix each line of text with a "%04d: " of the line number.
 func withLines(text []byte) string {
-	var result string
+	var result strings.Builder
 	lines := strings.Split(string(text), "\n")
 	for i, line := range lines {
-		result += fmt.Sprintf("%04d: %s\n", i+1, line)
+		_, _ = fmt.Fprintf(&result, "%04d: %s\n", i+1, line)
 	}
-	return result
+	return result.String()
 }
 
 func getPluginNames() []string {
@@ -494,6 +494,23 @@ func testOps(t *testing.T, client *pjrt.Client) {
 			{[]uint32{0xdeadbeef}, []int{1}},
 			{[]uint16{0xbeef, 0xdead}, []int{2}},
 			{[]float32{float32(math.Inf(1))}, nil},
+		}, outputs)
+	})
+
+	t.Run("BitcastConvert-packed_bits", func(t *testing.T) {
+		builder := New(t.Name())
+		fn := builder.Main()
+		c0 := must1(fn.ConstantFromFlatAndDimensions([]uint8{0b01_10_00_11}, 1))
+		must(fn.Return(
+			must1(BitcastConvert(c0, dtypes.Uint2)),
+			must1(BitcastConvert(c0, dtypes.Int2)),
+		))
+		program := must1(builder.Build())
+		fmt.Printf("%s program:\n%s", t.Name(), withLines(program))
+		outputs := compileAndExecute(t, client, program)
+		requireBuffersEqual(t, []FlatAndDims{
+			{[]uint8{1, 2, 0, 3}, []int{1, 4}},
+			{[]int8{1, -2, 0, -1}, []int{1, 4}},
 		}, outputs)
 	})
 
