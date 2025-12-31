@@ -14,6 +14,68 @@ import (
 // by using stablehlo to convert from Int8 to the target dtype, then inspecting the raw bytes.
 func TestSubByteBufferTransfer(t *testing.T) {
 	iterateClientsAndTest(t, func(t *testing.T, client *pjrt.Client) {
+		t.Run("Int2_to_Int8", func(t *testing.T) {
+			// Build [4]int2 to [4]int8 converter.
+			builder := stablehlo.New("int2_to_int8")
+			mainFn := builder.Main()
+			x, err := mainFn.NamedInput("x", shapes.Make(dtypes.Int2, 4))
+			requireNoError(t, err, "Failed to create input")
+			converted, err := stablehlo.Convert(x, dtypes.Int8)
+			requireNoError(t, err, "Failed to convert Int8 to Int2")
+			err = mainFn.Return(converted)
+			requireNoError(t, err, "Failed to set return value")
+			compBytes, err := builder.Build()
+			requireNoError(t, err, "Failed to build StableHLO")
+			fmt.Printf("StableHLO:\n%s\n", string(compBytes))
+			loadedExec, err := client.Compile().WithStableHLO(compBytes).Done()
+			requireNoError(t, err, "Failed to compile")
+			defer func() {
+				err := loadedExec.Destroy()
+				requireNoError(t, err)
+			}()
+
+			// Create input values:
+			inputBytes := []byte{0b10_01_00_11} // [4]Int2{-2, 1, 0, -3}
+			inputBuffer, err := client.BufferFromHost().
+				FromRawData(inputBytes, dtypes.Int2, []int{4}).
+				Done()
+			requireNoError(t, err, "Failed to create input buffer: %+v", err)
+			defer func() {
+				err := inputBuffer.Destroy()
+				requireNoError(t, err)
+			}()
+
+			// Execute
+			outputBuffers, err := loadedExec.Execute(inputBuffer).DonateNone().Done()
+			requireNoError(t, err, "Failed to execute")
+			if len(outputBuffers) != 1 {
+				t.Fatalf("Expected 1 output buffer, got %d", len(outputBuffers))
+			}
+			outputBuffer := outputBuffers[0]
+			defer func() {
+				err := outputBuffer.Destroy()
+				requireNoError(t, err)
+			}()
+
+			// Verify output dtype and dimensions
+			outputDtype, err := outputBuffer.DType()
+			requireNoError(t, err)
+			if outputDtype != dtypes.Int8 {
+				t.Fatalf("Expected output dtype Int8, got %v", outputDtype)
+			}
+
+			outputDims, err := outputBuffer.Dimensions()
+			requireNoError(t, err)
+			expectedDims := []int{4}
+			if len(outputDims) != len(expectedDims) || outputDims[0] != expectedDims[0] {
+				t.Fatalf("Expected output dimensions %v, got %v", expectedDims, outputDims)
+			}
+
+			outputDataAny, err := outputBuffer.Data()
+			requireNoError(t, err)
+			fmt.Printf("- Output: %v\n", outputDataAny)
+		})
+
 		// Test Int8 -> Int2 conversion
 		t.Run("Int8_to_Int2", func(t *testing.T) {
 			// Create input: [8]int8 with values that fit in int2 range (-2 to 1)
