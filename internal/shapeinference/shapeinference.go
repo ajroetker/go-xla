@@ -158,8 +158,12 @@ func BinaryOp(opType optypes.OpType, lhsShape, rhsShape shapes.Shape) (output sh
 		err = errors.Errorf("invalid shape for %s or %s for %q", lhsShape, rhsShape, opType)
 		return
 	}
-	// Skip equality check if shapes have dynamic dimensions (DimUnknown) - broadcasting logic in binaryOpImpl will handle it
+	// Check shapes match. For dynamic dimensions, we can only check rank since Equal() requires exact dimension match.
 	hasDynamic := lhsShape.IsDynamic() || rhsShape.IsDynamic()
+	if hasDynamic && lhsShape.Rank() != rhsShape.Rank() {
+		err = errors.Errorf("ranks for dynamic shapes of %q must match, got %s and %s", opType, lhsShape, rhsShape)
+		return
+	}
 	if !hasDynamic && !lhsShape.Equal(rhsShape) {
 		err = errors.Errorf("shapes for %q must match, got %s and %s", opType, lhsShape, rhsShape)
 		return
@@ -203,10 +207,11 @@ func binaryOpImpl(opType optypes.OpType, lhsShape, rhsShape shapes.Shape) (outpu
 		return lhsShape, nil
 	}
 
-	// Other cases, either the dimensions match or one of them is 1.
+	// StableHLO requires matching dimensions (no implicit broadcasting).
 	if lhsShape.Rank() != rhsShape.Rank() {
 		err = errors.Errorf("if operands are not scalars, their rank must match for BinaryOp (%s), got shapes %s and %s",
 			opType, lhsShape, rhsShape)
+		return
 	}
 	output = lhsShape.Clone()
 
@@ -214,29 +219,25 @@ func binaryOpImpl(opType optypes.OpType, lhsShape, rhsShape shapes.Shape) (outpu
 		lhsDim := lhsShape.Dimensions[axis]
 		rhsDim := rhsShape.Dimensions[axis]
 
-		// Handle dynamic dimensions (DimUnknown)
+		// Handle dynamic dimensions (shapes.DimUnknown)
 		switch {
 		case lhsDim == shapes.DimUnknown && rhsDim == shapes.DimUnknown:
 			// Both dynamic - result is unknown
 			output.Dimensions[axis] = shapes.DimUnknown
-		case lhsDim >= 0 && rhsDim >= 0:
-			// Both static (including zero-dimension tensors) - use existing max logic for broadcasting
-			if lhsDim != 1 && rhsDim != 1 && lhsDim != rhsDim {
-				err = errors.Errorf("dimension of axis #%d doesn't match and cannot be broadcast for BinaryOp (%s), got shapes %s and %s",
-					axis, opType, lhsShape, rhsShape)
-				return
-			}
-			output.Dimensions[axis] = max(lhsDim, rhsDim)
-		case lhsDim < 0 && rhsDim > 1:
-			// Dynamic vs concrete > 1: use concrete (dynamic must be compatible)
+		case lhsDim == shapes.DimUnknown:
+			// lhs dynamic, rhs concrete - use concrete
 			output.Dimensions[axis] = rhsDim
-		case rhsDim < 0 && lhsDim > 1:
-			// Concrete > 1 vs dynamic: use concrete
+		case rhsDim == shapes.DimUnknown:
+			// rhs dynamic, lhs concrete - use concrete
 			output.Dimensions[axis] = lhsDim
 		default:
-			err = errors.Errorf("incompatible dynamic dimensions at axis %d: %d vs %d for BinaryOp (%s)",
-				axis, lhsDim, rhsDim, opType)
-			return
+			// Both static - must match exactly (no broadcasting in StableHLO)
+			if lhsDim != rhsDim {
+				err = errors.Errorf("%q requires both shapes to be the same at every non-dynamic axis, but they differ for axis #%d: lhs=%s, rhs=%s",
+					opType, axis, lhsShape, rhsShape)
+				return
+			}
+			output.Dimensions[axis] = lhsDim
 		}
 	}
 
@@ -345,27 +346,27 @@ func UnaryOp(opType optypes.OpType, operand shapes.Shape) (output shapes.Shape, 
 	return
 }
 
-// shapesCompatible checks if two shapes are compatible for operations like Select.
+// areEqualShapesCompatible checks if two shapes are compatible for operations like Select.
 // Two shapes are compatible if:
 // - They have the same rank
 // - They have the same dtype
 // - For each dimension, either:
-//   - Both are dynamic (negative values indicate dynamic dimensions)
+//   - Both are dynamic (shapes.DimUnknown indicates dynamic dimensions)
 //   - One or both is dynamic (allows static to match dynamic at runtime)
 //   - Both are static and equal
-func shapesCompatible(a, b shapes.Shape) bool {
+func areEqualShapesCompatible(a, b shapes.Shape) bool {
 	if a.DType != b.DType {
 		return false
 	}
 	if a.Rank() != b.Rank() {
 		return false
 	}
-	for i := 0; i < a.Rank(); i++ {
+	for i := range a.Rank() {
 		dimA := a.Dimensions[i]
 		dimB := b.Dimensions[i]
 		// If either dimension is dynamic (DimUnknown), they're compatible
 		// This allows mixing static shapes like [1,1,1] with dynamic shapes
-		if dimA < 0 || dimB < 0 {
+		if dimA == shapes.DimUnknown || dimB == shapes.DimUnknown {
 			continue
 		}
 		// Both are static: must match exactly
@@ -376,23 +377,23 @@ func shapesCompatible(a, b shapes.Shape) bool {
 	return true
 }
 
-// dimensionsCompatible checks if two shapes have compatible dimensions (ignoring dtype).
+// areEqualDimensionsCompatible checks if two shapes have compatible dimensions (ignoring dtype).
 // This is useful for operations like Sort that can have inputs with different dtypes.
 // Two shapes are considered dimension-compatible if:
 // - They have the same rank
 // - For each dimension, either:
-//   - Both are dynamic (negative values indicate dynamic dimensions)
+//   - Both are dynamic (shapes.DimUnknown indicates dynamic dimensions)
 //   - One or both is dynamic (allows static to match dynamic at runtime)
 //   - Both are static and equal
-func dimensionsCompatible(a, b shapes.Shape) bool {
+func areEqualDimensionsCompatible(a, b shapes.Shape) bool {
 	if a.Rank() != b.Rank() {
 		return false
 	}
-	for i := 0; i < a.Rank(); i++ {
+	for i := range a.Rank() {
 		dimA := a.Dimensions[i]
 		dimB := b.Dimensions[i]
 		// If either dimension is dynamic (DimUnknown), they're compatible
-		if dimA < 0 || dimB < 0 {
+		if dimA == shapes.DimUnknown || dimB == shapes.DimUnknown {
 			continue
 		}
 		// Both are static: must match exactly
@@ -412,7 +413,7 @@ func Select(pred, onTrue, onFalse shapes.Shape) (output shapes.Shape, err error)
 		err = errors.Errorf("pred for Select() must be a boolean, got %s instead", pred)
 		return
 	}
-	if !shapesCompatible(onTrue, onFalse) {
+	if !areEqualShapesCompatible(onTrue, onFalse) {
 		err = errors.Errorf("onTrue (%s) and onFalse (%s) values for Select() must have compatible shapes",
 			onTrue, onFalse)
 		return
@@ -425,7 +426,7 @@ func Select(pred, onTrue, onFalse shapes.Shape) (output shapes.Shape, err error)
 			DType:      dtypes.Bool,
 			Dimensions: slices.Clone(onTrue.Dimensions),
 		}
-		if !shapesCompatible(pred, predExpected) {
+		if !areEqualShapesCompatible(pred, predExpected) {
 			err = errors.Errorf("pred for Select() must either be a scalar or match onTrue and onFalse shapes, instead got shapes pred=%s, onTrue=%s and onFalse=%s",
 				pred, onTrue, onFalse)
 			return
@@ -447,7 +448,7 @@ func Complex(real, imag shapes.Shape) (output shapes.Shape, err error) {
 		return
 	}
 	// Check that dimensions are compatible (allowing dynamic dimensions)
-	if !dimensionsCompatible(real, imag) {
+	if !areEqualDimensionsCompatible(real, imag) {
 		err = errors.Errorf("real and imaginary parts for Complex() must have compatible dimensions, got %s and %s",
 			real, imag)
 		return
@@ -492,13 +493,13 @@ func Clamp(min, operand, max shapes.Shape) (output shapes.Shape, err error) {
 		err = errors.Errorf("Clamp() does not support complex or boolean data types, got %s", operand)
 		return
 	}
-	// Use shapesCompatible to allow dynamic dimensions to match
-	if !min.IsScalar() && !shapesCompatible(min, operand) {
+	// Use areEqualShapesCompatible to allow dynamic dimensions to match
+	if !min.IsScalar() && !areEqualShapesCompatible(min, operand) {
 		err = errors.Errorf("min for Clamp() must either be a scalar or have compatible shape with operand, instead got min=%s and operand=%s",
 			min, operand)
 		return
 	}
-	if !max.IsScalar() && !shapesCompatible(max, operand) {
+	if !max.IsScalar() && !areEqualShapesCompatible(max, operand) {
 		err = errors.Errorf("max for Clamp() must either be a scalar or have compatible shape with operand, instead got max=%s and operand=%s",
 			max, operand)
 		return
@@ -839,30 +840,21 @@ func Concatenate(inputs []shapes.Shape, axis int) (output shapes.Shape, err erro
 			} else {
 				outputDim := output.Dimensions[d]
 				currentDim := currentShape.Dimensions[d]
-				// Allow dynamic dimensions to match any dimension (resolved at runtime)
-				// Also allow dimension 1 to be a placeholder for dynamic dimensions
-				// Only error if BOTH dimensions are concrete AND neither is 1 AND they don't match
-				if outputDim != currentDim && outputDim >= 0 && currentDim >= 0 {
-					// Special case: if one dimension is 1, it's likely a placeholder for a dynamic dimension
-					// Allow the match by using the non-1 dimension
-					if outputDim == 1 && currentDim != 1 {
-						output.Dimensions[d] = currentDim
-					} else if currentDim == 1 && outputDim != 1 {
-						// Keep outputDim
-					} else {
-						// Both are concrete non-1 dimensions that don't match - this is an error
+				// Handle dynamic dimensions (shapes.DimUnknown)
+				switch {
+				case outputDim == shapes.DimUnknown && currentDim == shapes.DimUnknown:
+					// Both dynamic, keep dynamic
+				case outputDim == shapes.DimUnknown:
+					// output dynamic, current concrete - use concrete
+					output.Dimensions[d] = currentDim
+				case currentDim == shapes.DimUnknown:
+					// current dynamic, output concrete - keep output
+				default:
+					// Both concrete - must match exactly (no broadcasting in StableHLO)
+					if outputDim != currentDim {
 						return shapes.Invalid(), errors.Errorf("mismatched dimensions for Concatenate at axis %d (non-concatenation axis): input #0 has %d, input #%d has %d",
 							d, output.Dimensions[d], i, currentShape.Dimensions[d])
 					}
-				}
-				// If one is dynamic and one is concrete, use the concrete one for output
-				// This allows dynamic dimensions to match any concrete dimension
-				if outputDim < 0 && currentDim >= 0 {
-					output.Dimensions[d] = currentDim
-				} else if outputDim >= 0 && currentDim < 0 {
-					// Keep the concrete dimension from the first input
-				} else if outputDim < 0 && currentDim < 0 {
-					// Both dynamic, keep dynamic
 				}
 			}
 		}
@@ -896,8 +888,8 @@ func Scatter(inputs []shapes.Shape, scatterIndices shapes.Shape, updates []shape
 		if input.DType == dtypes.InvalidDType {
 			return nil, errors.Errorf("invalid shape for inputs[%d]=%s", i, input)
 		}
-		// Use dimensionsCompatible to allow dynamic dimensions
-		if !dimensionsCompatible(input0, input) {
+		// Use areEqualDimensionsCompatible to allow dynamic dimensions
+		if !areEqualDimensionsCompatible(input0, input) {
 			return nil, errors.Errorf("all inputs must have compatible shapes (even if different dtypes), "+
 				"but inputs[0]=%s and inputs[%d]=%s", input0, i, input)
 		}
@@ -911,8 +903,8 @@ func Scatter(inputs []shapes.Shape, scatterIndices shapes.Shape, updates []shape
 			return nil, errors.Errorf("data types (DType) for inputs[%d]=%s and corresponding updates[%d]=%s must match",
 				i, inputs[i], i, update)
 		}
-		// Use dimensionsCompatible to allow dynamic dimensions
-		if !dimensionsCompatible(updates0, update) {
+		// Use areEqualDimensionsCompatible to allow dynamic dimensions
+		if !areEqualDimensionsCompatible(updates0, update) {
 			return nil, errors.Errorf("all updates must have compatible shapes (even if different dtypes), "+
 				"but updates[0]=%s and updates[%d]=%s", updates0, i, update)
 		}
@@ -1053,7 +1045,7 @@ func Sort(inputs []shapes.Shape, dimension int) (outputs []shapes.Shape, err err
 
 	// Validate all inputs have the same dimensions (dtypes can differ for Sort)
 	for i := 1; i < len(inputs); i++ {
-		if !dimensionsCompatible(inputs[i], firstShape) {
+		if !areEqualDimensionsCompatible(inputs[i], firstShape) {
 			return nil, errors.Errorf("%s: all inputs must have the same dimensions, but input[0]=%s and input[%d]=%s",
 				opName, firstShape, i, inputs[i])
 		}
@@ -1200,7 +1192,7 @@ func ReduceWindow(inputs, initialValues []shapes.Shape, reductionInputs, reducti
 		}
 
 		// Handle dynamic dimensions: if inputDim is dynamic, output is also dynamic
-		if inputDim < 0 {
+		if inputDim == shapes.DimUnknown {
 			outputDims[i] = shapes.DimUnknown
 			continue
 		}
@@ -1418,7 +1410,7 @@ func Convolve(input, kernel shapes.Shape,
 		outputSpatialAxis := outputSpatialAxes[spatialAxisIdx]
 
 		// Handle dynamic dimensions: if inputDim or kernelDim is dynamic, output is dynamic
-		if inputDim < 0 || kernelDim < 0 {
+		if inputDim == shapes.DimUnknown || kernelDim == shapes.DimUnknown {
 			output.Dimensions[outputSpatialAxis] = shapes.DimUnknown
 			continue
 		}
@@ -1746,10 +1738,10 @@ func Pad(x, fill shapes.Shape, paddingStart, paddingEnd, paddingInterior []int) 
 
 	// Calculate output dimensions.
 	outputDims := make([]int, rank)
-	for axis := 0; axis < rank; axis++ {
+	for axis := range rank {
 		inputDim := x.Dimensions[axis]
 		// Handle dynamic dimensions: if inputDim is dynamic, output is also dynamic
-		if inputDim < 0 {
+		if inputDim == shapes.DimUnknown {
 			outputDims[axis] = shapes.DimUnknown
 			continue
 		}
@@ -2027,7 +2019,7 @@ func While(initialStates, condInputs, condOutputs, bodyInputs, bodyOutputs []sha
 
 	// Validate that condition inputs are compatible with initial states (allowing dynamic dimensions)
 	for i, condInput := range condInputs {
-		if !shapesCompatible(condInput, initialStates[i]) {
+		if !areEqualShapesCompatible(condInput, initialStates[i]) {
 			return nil, errors.Errorf("While condition function input[%d] must be compatible with initial state[%d], got %s vs %s",
 				i, i, condInput, initialStates[i])
 		}
@@ -2035,7 +2027,7 @@ func While(initialStates, condInputs, condOutputs, bodyInputs, bodyOutputs []sha
 
 	// Validate that body inputs are compatible with initial states (allowing dynamic dimensions)
 	for i, bodyInput := range bodyInputs {
-		if !shapesCompatible(bodyInput, initialStates[i]) {
+		if !areEqualShapesCompatible(bodyInput, initialStates[i]) {
 			return nil, errors.Errorf("While body function input[%d] must be compatible with initial state[%d], got %s vs %s",
 				i, i, bodyInput, initialStates[i])
 		}
@@ -2043,7 +2035,7 @@ func While(initialStates, condInputs, condOutputs, bodyInputs, bodyOutputs []sha
 
 	// Validate that body outputs are compatible with initial states (allowing dynamic dimensions)
 	for i, bodyOutput := range bodyOutputs {
-		if !shapesCompatible(bodyOutput, initialStates[i]) {
+		if !areEqualShapesCompatible(bodyOutput, initialStates[i]) {
 			return nil, errors.Errorf("While body function output[%d] must be compatible with initial state[%d], got %s vs %s",
 				i, i, bodyOutput, initialStates[i])
 		}
@@ -2095,7 +2087,7 @@ func If(pred shapes.Shape, trueBranchInputs, trueBranchOutputs, falseBranchInput
 
 	// Validate branch outputs have compatible shapes (allowing dynamic dimensions)
 	for i := range trueBranchOutputs {
-		if !shapesCompatible(trueBranchOutputs[i], falseBranchOutputs[i]) {
+		if !areEqualShapesCompatible(trueBranchOutputs[i], falseBranchOutputs[i]) {
 			return nil, errors.Errorf("If branch outputs[%d] must be compatible, true_branch has %s, false_branch has %s",
 				i, trueBranchOutputs[i], falseBranchOutputs[i])
 		}

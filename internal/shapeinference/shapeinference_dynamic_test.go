@@ -168,8 +168,8 @@ func TestSelectWithDynamicDimensions(t *testing.T) {
 	}
 }
 
-// TestShapesCompatible tests the shapesCompatible helper function
-func TestShapesCompatible(t *testing.T) {
+// TestAreEqualShapesCompatible tests the areEqualShapesCompatible helper function
+func TestAreEqualShapesCompatible(t *testing.T) {
 	tests := []struct {
 		name       string
 		a          shapes.Shape
@@ -264,9 +264,9 @@ func TestShapesCompatible(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := shapesCompatible(tt.a, tt.b)
+			result := areEqualShapesCompatible(tt.a, tt.b)
 			if result != tt.compatible {
-				t.Errorf("shapesCompatible(%v, %v) = %v, want %v",
+				t.Errorf("areEqualShapesCompatible(%v, %v) = %v, want %v",
 					tt.a, tt.b, result, tt.compatible)
 			}
 		})
