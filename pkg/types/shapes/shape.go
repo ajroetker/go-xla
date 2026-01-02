@@ -101,7 +101,7 @@ type Shape struct {
 func Make(dtype dtypes.DType, dimensions ...int) Shape {
 	for i, dim := range dimensions {
 		if dim < DimUnknown {
-			panic(errors.Errorf("invalid dimension %d at axis %d: dimensions must be >= %d (DimUnknown), got %d", dim, i, DimUnknown, dim))
+			panic(errors.Errorf("invalid dimension %d at axis %d: dimensions must be >= 0 or be DimUnknown (%d), got %d", dim, i, DimUnknown, dim))
 		}
 	}
 	return Shape{Dimensions: slices.Clone(dimensions), DType: dtype}
