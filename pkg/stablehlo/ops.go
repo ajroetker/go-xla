@@ -382,7 +382,11 @@ func Reshape(operand *Value, shape shapes.Shape) (*Value, error) {
 		return nil, errors.Errorf("Reshape() requires the operand and the shape to have the same data type, got operand=%s and shape=%s",
 			operand.shape, shape)
 	}
-	if operand.shape.Size() != shape.Size() {
+
+	hasDynamic := operand.shape.IsDynamic() || shape.IsDynamic()
+
+	// Skip size validation if any dimension is dynamic (will be validated at runtime)
+	if !hasDynamic && operand.shape.Size() != shape.Size() {
 		return nil, errors.Errorf("Reshape() requires the total size of the new shape to match the original shape, got operand=%s and shape=%s",
 			operand.shape, shape)
 	}
@@ -554,6 +558,93 @@ func Slice(x *Value, starts, limits, strides []int) (*Value, error) {
 	return stmt.Outputs[0], nil
 }
 
+// Sort sorts one or more tensors along the specified dimension using a comparator function.
+//
+// Sort implements the StableHLO sort operation, which can sort multiple tensors in parallel
+// using a custom comparator function. This is useful for implementing operations like
+// top-k, argsort, or custom sorting logic.
+//
+// Parameters:
+//   - comparatorFn: A function that compares two elements and returns a boolean.
+//     Created with Function.Closure. For N inputs, must have signature
+//     (lhs_0, rhs_0, lhs_1, rhs_1, ..., lhs_{N-1}, rhs_{N-1}) -> scalar_bool
+//     That is, for each input tensor you get a (lhs, rhs) pair of elements being compared.
+//     Returns true if lhs should come before rhs in sorted order.
+//   - dimension: The dimension along which to sort (negative values count from the end)
+//   - isStable: Whether the sort should be stable (preserve relative order of equal elements)
+//   - inputs: One or more tensors to sort. All must have the same shape.
+//     The first tensor is used for comparison by the comparatorFn.
+//     Additional tensors are reordered to match the sorting of the first tensor.
+//
+// Returns:
+//   - The sorted tensors in the same order as inputs.
+//
+// Example (descending sort with indices):
+//
+//	values := ... // shape [batch, seq_len]
+//	indices := ... // shape [batch, seq_len] with values 0, 1, 2, ...
+//
+//	comparatorFn := fn.Closure()
+//	// Arguments for first input (values): lhs, rhs
+//	lhsVal, _ := comparatorFn.Input(values.Shape().ScalarShape())
+//	rhsVal, _ := comparatorFn.Input(values.Shape().ScalarShape())
+//	// Arguments for second input (indices): lhs, rhs (not used in comparison)
+//	lhsIdx, _ := comparatorFn.Input(indices.Shape().ScalarShape())
+//	rhsIdx, _ := comparatorFn.Input(indices.Shape().ScalarShape())
+//	_, _ = lhsIdx, rhsIdx // silence unused variable warnings
+//	result, _ := Compare(lhsVal, rhsVal, ComparisonDirectionGT, ComparisonTypeFloat)
+//	comparatorFn.Return(result)
+//
+//	sortedValues, sortedIndices, err := Sort(comparatorFn, -1, true, values, indices)
+func Sort(comparatorFn *Function, dimension int, isStable bool, inputs ...*Value) ([]*Value, error) {
+	op := optypes.Sort
+	if len(inputs) == 0 {
+		return nil, errors.New("Sort requires at least one input tensor")
+	}
+	fn := inputs[0].fn
+	if fn.Returned {
+		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
+			op, fn.Name)
+	}
+
+	// Validate all inputs are from the same function
+	for i, input := range inputs {
+		if input.fn != fn {
+			return nil, errors.Errorf("cannot add operation %s to function %q, because input #%d is from different function (%q and %q)",
+				op, fn.Name, i, input.fn.Name, fn.Name)
+		}
+	}
+
+	// Validate comparator function is a closure of the current function
+	if comparatorFn.Parent != fn {
+		return nil, errors.Errorf("cannot add operation %s because comparatorFn is not a StableHLO closure of %s",
+			op, fn.Name)
+	}
+
+	// Adjust dimension to handle negative values
+	adjustedDim, err := shapeinference.AdjustAxisToRank(dimension, inputs[0].shape.Rank())
+	if err != nil {
+		return nil, errors.WithMessage(err, "Sort dimension for inputs")
+	}
+
+	// Perform shape inference
+	inputShapes := valuesToShapes(inputs)
+	outputShapes, err := shapeinference.Sort(inputShapes, adjustedDim)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create the statement
+	stmt := fn.addMultiOp(op, outputShapes, inputs)
+	stmt.Attributes = map[string]any{
+		"dimension": int64(adjustedDim),
+		"is_stable": isStable,
+	}
+	stmt.AddFunctionParameter("comparator", comparatorFn)
+
+	return stmt.Outputs, nil
+}
+
 // Concatenate operands on the given axis.
 //
 // All axes that are not being concatenated must match dimensions, except on the axes being concatenated.
@@ -579,6 +670,7 @@ func Concatenate(axis int, operands ...*Value) (*Value, error) {
 	for i, operand := range operands {
 		operandsShapes[i] = operand.shape
 	}
+
 	outputShape, err := shapeinference.Concatenate(operandsShapes, axis)
 	if err != nil {
 		return nil, err
@@ -1397,9 +1489,7 @@ func DynamicSlice(operand *Value, startIndices []*Value, sliceSizes []int) (*Val
 		}
 	}
 	outputShape := operand.shape.Clone()
-	for axis, size := range sliceSizes {
-		outputShape.Dimensions[axis] = size
-	}
+	copy(outputShape.Dimensions, sliceSizes)
 	stmt := fn.addOp(op, outputShape, append([]*Value{operand}, startIndices...)...)
 	stmt.Attributes = map[string]any{"slice_sizes": intSliceToArrayI64StableHLO(sliceSizes)}
 	return stmt.Outputs[0], nil
@@ -1604,4 +1694,195 @@ func UniformDequantize(operand *Value) (*Value, error) {
 	outputShape.Quantization = nil
 	stmt := fn.addOp(op, outputShape, operand)
 	return stmt.Outputs[0], nil
+}
+
+// GetDimensionSize returns a scalar i32 containing the runtime size of the specified dimension.
+//
+// - operand: the tensor to get the dimension size from.
+// - dimension: the axis/dimension index to query (can be negative for reverse indexing).
+//
+// This is useful for working with dynamic shapes where dimension sizes are not known at compile time.
+func GetDimensionSize(operand *Value, dimension int) (*Value, error) {
+	op := optypes.GetDimensionSize
+	fn := operand.fn
+	if fn.Returned {
+		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
+			op, fn.Name)
+	}
+
+	// Adjust negative dimension index
+	adjustedDim := dimension
+	if dimension < 0 {
+		adjustedDim = operand.shape.Rank() + dimension
+	}
+	if adjustedDim < 0 || adjustedDim >= operand.shape.Rank() {
+		return nil, errors.Errorf("dimension %d out of bounds for rank %d tensor",
+			dimension, operand.shape.Rank())
+	}
+
+	// Output is always a scalar i32
+	outputShape := shapes.Make(dtypes.Int32)
+	stmt := fn.addOp(op, outputShape, operand)
+	stmt.Attributes = map[string]any{"dimension": int64(adjustedDim)}
+	return stmt.Outputs[0], nil
+}
+
+// While executes body repeatedly while condition returns true.
+//
+// The While operation implements a loop that continues executing the body function
+// as long as the condition function returns true.
+//
+// Parameters:
+//   - condFn: A function that takes the current state tuple and returns a scalar boolean.
+//     Created with Builder.NewClosure. Must have signature (state...) -> scalar_bool
+//   - bodyFn: A function that takes the current state tuple and returns the updated state tuple.
+//     Created with Builder.NewClosure. Must have signature (state...) -> (state...)
+//     The output types must match the input types.
+//   - initialStates: Initial values for the loop state.
+//
+// Returns:
+//   - The final state values after the loop terminates.
+//
+// The loop executes as follows:
+//  1. Evaluate condFn with current state
+//  2. If condition is false, return current state
+//  3. Evaluate bodyFn with current state to get new state
+//  4. Repeat from step 1
+//
+// Example (count from 0 to 10):
+//
+//	counter, _ := fn.ConstantFromScalar(int32(0))
+//	condFn := fn.Closure()
+//	c, _ := condFn.Input(counter.Shape())
+//	limit, _ := condFn.ConstantFromScalar(int32(10))
+//	cond, _ := Compare(c, limit, ComparisonDirectionLT)
+//	condFn.Return(cond)
+//
+//	bodyFn := fn.Closure()
+//	c, _ = bodyFn.Input(counter.Shape())
+//	one, _ := bodyFn.ConstantFromScalar(int32(1))
+//	next, _ := Add(c, one)
+//	bodyFn.Return(next)
+//
+//	result, err := While(condFn, bodyFn, counter)
+func While(condFn, bodyFn *Function, initialStates ...*Value) ([]*Value, error) {
+	op := optypes.While
+	if len(initialStates) == 0 {
+		return nil, errors.New("While requires at least one initial state value")
+	}
+	fn := initialStates[0].fn
+	if fn.Returned {
+		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
+			op, fn.Name)
+	}
+
+	// Validate all initial states are from the same function
+	for i, state := range initialStates {
+		if state.fn != fn {
+			return nil, errors.Errorf("cannot add operation %s to function %q, because initialStates[%d] is from different function (%q and %q)",
+				op, fn.Name, i, state.fn.Name, fn.Name)
+		}
+	}
+
+	// Validate closure functions are children of the current function
+	if condFn.Parent != fn {
+		return nil, errors.Errorf("cannot add operation %s because condFn is not a StableHLO closure of %s",
+			op, fn.Name)
+	}
+	if bodyFn.Parent != fn {
+		return nil, errors.Errorf("cannot add operation %s because bodyFn is not a StableHLO closure of %s",
+			op, fn.Name)
+	}
+
+	// Perform shape inference
+	outputsShapes, err := shapeinference.While(
+		valuesToShapes(initialStates),
+		valuesToShapes(condFn.Inputs), valuesToShapes(condFn.Outputs),
+		valuesToShapes(bodyFn.Inputs), valuesToShapes(bodyFn.Outputs))
+	if err != nil {
+		return nil, err
+	}
+
+	// Create the statement
+	stmt := fn.addMultiOp(op, outputsShapes, initialStates)
+	// Note: AddFunctionParameter processes parameters in alphabetical order internally,
+	// so "body" comes before "cond" alphabetically. To get the correct MLIR region order
+	// (body first, cond second), we add them as "cond" then "body".
+	stmt.AddFunctionParameter("cond", condFn)
+	stmt.AddFunctionParameter("body", bodyFn)
+
+	return stmt.Outputs, nil
+}
+
+// If selects between two branches based on a scalar boolean predicate.
+//
+// The If operation evaluates exactly one of the two branches based on the predicate value:
+//   - If pred is true, the true_branch is executed
+//   - If pred is false, the false_branch is executed
+//
+// Parameters:
+//   - pred: A scalar boolean value that determines which branch to execute.
+//   - trueBranch: A function to execute when pred is true.
+//     Created with Function.Closure(). Must have no inputs and return one or more values.
+//   - falseBranch: A function to execute when pred is false.
+//     Created with Function.Closure(). Must have no inputs and return the same number
+//     of values with matching shapes as trueBranch.
+//
+// Returns:
+//   - The outputs from whichever branch was executed.
+//
+// Example (select max or min based on condition):
+//
+//	a := must(fn.ConstantFromScalar(float32(5.0)))
+//	b := must(fn.ConstantFromScalar(float32(3.0)))
+//	useMax := must(fn.ConstantFromScalar(true))
+//
+//	trueBranch := fn.Closure()
+//	maxVal := must(trueBranch.ConstantFromScalar(float32(5.0))) // or compute max(a,b)
+//	trueBranch.Return(maxVal)
+//
+//	falseBranch := fn.Closure()
+//	minVal := must(falseBranch.ConstantFromScalar(float32(3.0))) // or compute min(a,b)
+//	falseBranch.Return(minVal)
+//
+//	result, err := If(useMax, trueBranch, falseBranch)
+func If(pred *Value, trueBranch, falseBranch *Function) ([]*Value, error) {
+	op := optypes.If
+	fn := pred.fn
+	if fn.Returned {
+		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
+			op, fn.Name)
+	}
+
+	// Validate pred is a scalar bool
+	if !pred.shape.IsScalar() || pred.shape.DType != dtypes.Bool {
+		return nil, errors.Errorf("If predicate must be a scalar bool, got %s", pred.shape)
+	}
+
+	// Validate branch functions are closures of the current function
+	if trueBranch.Parent != fn {
+		return nil, errors.Errorf("cannot add operation %s because trueBranch is not a StableHLO closure of %s",
+			op, fn.Name)
+	}
+	if falseBranch.Parent != fn {
+		return nil, errors.Errorf("cannot add operation %s because falseBranch is not a StableHLO closure of %s",
+			op, fn.Name)
+	}
+
+	// Perform shape inference
+	outputsShapes, err := shapeinference.If(
+		pred.shape,
+		valuesToShapes(trueBranch.Inputs), valuesToShapes(trueBranch.Outputs),
+		valuesToShapes(falseBranch.Inputs), valuesToShapes(falseBranch.Outputs))
+	if err != nil {
+		return nil, err
+	}
+
+	// Create the statement
+	stmt := fn.addMultiOp(op, outputsShapes, []*Value{pred})
+	// StableHLO if expects true_branch first, then false_branch
+	stmt.AddFunctionParameter("true_branch", trueBranch)
+	stmt.AddFunctionParameter("false_branch", falseBranch)
+
+	return stmt.Outputs, nil
 }

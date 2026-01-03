@@ -101,11 +101,11 @@ func (fn *Function) InputWithAttributes(shape shapes.Shape, attributes map[strin
 // InputWithShardingAndAttributes creates a new input with the given sharding specification and attributes.
 func (fn *Function) InputWithShardingAndAttributes(shape shapes.Shape, shardingSpec *shardy.ShardingSpec, attributes map[string]any) (*Value, error) {
 	rootFn := fn.findRootFn()
+	// Note: NamedInputWithShardingAndAttributes increments nextArgID, so we don't need to do it here.
 	value, err := fn.NamedInputWithShardingAndAttributes(fmt.Sprintf("arg%d", rootFn.nextArgID), shape, shardingSpec, attributes)
 	if err != nil {
 		return nil, err
 	}
-	rootFn.nextArgID++
 	return value, nil
 }
 
@@ -176,6 +176,14 @@ func (fn *Function) NamedInputWithShardingAndAttributes(name string, shape shape
 		}
 	}
 	fn.Inputs = append(fn.Inputs, value)
+
+	// Increment nextArgID on the root function to ensure closure inputs don't conflict.
+	// This is critical because closures use Input() which generates names like "arg0", "arg1", etc.
+	// based on nextArgID. If we don't increment here, closures would reuse names already used
+	// by the main function's named inputs (e.g., "arg0" for model inputs).
+	rootFn := fn.findRootFn()
+	rootFn.nextArgID++
+
 	return value, nil
 }
 
@@ -361,6 +369,55 @@ func (fn *Function) Closure() *Function {
 	closureFn := fn.Builder.NewFunction(name)
 	closureFn.Parent = fn
 	return closureFn
+}
+
+// UseParentValue creates a reference in this closure to a value from the parent function.
+// This allows closure functions (like If branches) to use values computed in the parent scope.
+//
+// At the StableHLO/MLIR level, closures can reference SSA (Static Single Assignment) values from their parent scope directly.
+// This method enables that by creating a Value in the closure that references the same SSA name.
+//
+// Returns an error if:
+//   - This function is not a closure (has no parent)
+//   - The parentValue does not belong to the parent function
+//
+// Example:
+//
+//	// In parent function
+//	x := fn.ConstantFromScalar(5.0)
+//
+//	// In closure (e.g., If branch)
+//	closureFn := fn.Closure()
+//	xInClosure := closureFn.UseParentValue(x)
+//	result, _ := stablehlo.Add(xInClosure, closureFn.ConstantFromScalar(1.0))
+//	closureFn.Return(result)
+func (fn *Function) UseParentValue(parentValue *Value) (*Value, error) {
+	if fn.Parent == nil {
+		return nil, errors.New("UseParentValue can only be called on closure functions")
+	}
+	if parentValue == nil {
+		return nil, errors.New("parentValue is nil")
+	}
+	// Walk up the parent chain to check if parentValue belongs to an ancestor
+	currentFn := fn
+	for currentFn != nil && currentFn != parentValue.fn {
+		currentFn = currentFn.Parent
+	}
+	if currentFn == nil {
+		return nil, errors.Errorf("value %q belongs to function %q, not an ancestor of function %q",
+			parentValue.name, parentValue.fn.Name, fn.Name)
+	}
+
+	// Create a value in this closure that references the parent's SSA name.
+	// At the MLIR level, the SSA value name is valid across nested regions.
+	v := &Value{
+		fn:    fn, // This value "belongs" to the closure for operation purposes
+		name:  parentValue.name,
+		shape: parentValue.shape,
+	}
+	// Note: We don't add to fn.values since this is a reference to an existing value,
+	// not a new value created in this function.
+	return v, nil
 }
 
 // Write the function as StableHLO code, with the given indentation.

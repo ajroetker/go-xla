@@ -204,3 +204,32 @@ func TestNormalizeIdentifier(t *testing.T) {
 		}
 	}
 }
+
+func TestDynamicOperations(t *testing.T) {
+	t.Run("GetDimensionSize", func(t *testing.T) {
+		b := New(t.Name())
+		fn := b.Main()
+
+		// Create a tensor with shape [3, ?, 5] where the second dimension is dynamic
+		operand := must(fn.NamedInput("operand", shapes.Make(dtypes.Float32, 3, shapes.DimUnknown, 5)))
+
+		// Get size of dynamic dimension 1 (value only known at runtime)
+		dimSize := must(GetDimensionSize(operand, 1))
+
+		if err := fn.Return(dimSize); err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		program := string(must(b.Build()))
+		fmt.Printf("%s program:\n%s", t.Name(), program)
+
+		// Verify the operation is present in the program
+		if !strings.Contains(program, "stablehlo.get_dimension_size") {
+			t.Fatal("expected program to contain get_dimension_size operation")
+		}
+		if !strings.Contains(program, `dimension = 1`) {
+			t.Fatal("expected program to specify dimension = 1")
+		}
+	})
+
+}

@@ -138,7 +138,7 @@ func (s *Statement) Write(writer io.Writer, indentation string) error {
 
 // writeAttributes writes a map of attributes to the writer.
 // The w function is the one provided by the caller to handle errors.
-func writeAttributes(writer io.Writer, indentation string, attributes map[string]any, w func(format string, args ...any)) {
+func writeAttributes(_ io.Writer, indentation string, attributes map[string]any, w func(format string, args ...any)) {
 	if len(attributes) == 0 {
 		return
 	}
@@ -146,7 +146,7 @@ func writeAttributes(writer io.Writer, indentation string, attributes map[string
 	if len(attributes) == 1 {
 		for key, value := range attributes {
 			literalValue := literalToStableHLO(value)
-			if strings.Index(literalValue, "\n") == -1 {
+			if !strings.Contains(literalValue, "\n") {
 				w(" { %s = %s }", key, literalValue)
 			} else {
 				literalValue = strings.ReplaceAll(literalValue, "\n", "\n"+nextIndentation)

@@ -47,7 +47,12 @@ func (s Shape) WriteStableHLO(writer io.Writer) error {
 			if i > 0 {
 				w("x")
 			}
-			w("%d", dim)
+			// StableHLO uses '?' for dynamic dimensions (DimUnknown)
+			if dim == DimUnknown {
+				w("?")
+			} else {
+				w("%d", dim)
+			}
 		}
 		w("x")
 	}
@@ -56,6 +61,7 @@ func (s Shape) WriteStableHLO(writer io.Writer) error {
 	} else {
 		w("%s", s.DType.ToStableHLO())
 	}
+
 	w(">")
 	return err
 }
