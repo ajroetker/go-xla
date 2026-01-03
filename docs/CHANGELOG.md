@@ -1,4 +1,4 @@
-# Next
+# Next: Dynamic Shapes (thx @ajroetker); Quantized shapes;
 
 * Updated `DefaultCPUVersion` to "v0.83.4" (`pjrt-cpu-binaries` version)
 * Quantization:
@@ -6,6 +6,7 @@
   - Add i2, i4, ui2 and ui4 DTypes.
   - Add UniformQuantize() and UniformDequantize() ops.
   - Add Value.WithOutputElementType() to allow change of quantization parameters for operations.
+- Dynamic Shapes (thx @ajroetker)
 
 # v0.1.4
 
