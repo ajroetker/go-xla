@@ -128,14 +128,13 @@ func (fn *Function) unaryOp(op optypes.OpType, operand *Value) (*Value, error) {
 // For boolean data types (dtypes.Bool) use the types.CompareUnsigned type.
 func Compare(lhs, rhs *Value, direction types.ComparisonDirection, compareType types.ComparisonType) (*Value, error) {
 	op := optypes.Compare
-	fn := lhs.fn
+	fn, err := innerMostFunction(lhs, rhs)
+	if err != nil {
+		return nil, err
+	}
 	if fn.Returned {
 		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
 			op, fn.Name)
-	}
-	if rhs.fn != fn {
-		return nil, errors.Errorf("cannot add operation %s to function %q, because operands are from different functions (%q and %q)",
-			op, fn.Name, fn.Name, rhs.fn.Name)
 	}
 	outputShape, err := shapeinference.Compare(lhs.shape, rhs.shape, direction, compareType)
 	if err != nil {
@@ -160,14 +159,13 @@ func valuesToShapes(values []*Value) []shapes.Shape {
 // Complex returns the complex value by concatenating the real and imaginary parts element-wise.
 func Complex(real, imag *Value) (*Value, error) {
 	op := optypes.Complex
-	fn := real.fn
+	fn, err := innerMostFunction(real, imag)
+	if err != nil {
+		return nil, err
+	}
 	if fn.Returned {
 		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
 			op, fn.Name)
-	}
-	if imag.fn != fn {
-		return nil, errors.Errorf("cannot add operation %s to function %q, because operands are from different functions (%q and %q)",
-			op, fn.Name, fn.Name, imag.fn.Name)
 	}
 	outputShape, err := shapeinference.Complex(real.shape, imag.shape)
 	if err != nil {
@@ -232,14 +230,13 @@ func IsFinite(x *Value) (*Value, error) {
 // Note: the order of the arguments in StableHLO is different from most ML libraries.
 func Clamp(min, x, max *Value) (*Value, error) {
 	op := optypes.Clamp
-	fn := x.fn
+	fn, err := innerMostFunction(min, x, max)
+	if err != nil {
+		return nil, err
+	}
 	if fn.Returned {
 		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
 			op, fn.Name)
-	}
-	if min.fn != fn || max.fn != fn {
-		return nil, errors.Errorf("cannot add operation %s to function %q, because operands are from different functions (%q, %q and %q)",
-			op, fn.Name, fn.Name, max.fn.Name, min.fn.Name)
 	}
 	outputShape, err := shapeinference.Clamp(min.shape, x.shape, max.shape)
 	if err != nil {
@@ -352,14 +349,13 @@ func (b *DotGeneralBuilder) Algorithm(algorithm *types.DotGeneralAlgorithm) *Dot
 // It checks the validity of the parameters and shapes and returns the final DotGeneral node.
 func (b *DotGeneralBuilder) Done() (*Value, error) {
 	op := optypes.DotGeneral
-	fn := b.fn
+	fn, err := innerMostFunction(b.lhs, b.rhs)
+	if err != nil {
+		return nil, err
+	}
 	if fn.Returned {
 		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
 			op, fn.Name)
-	}
-	if b.lhs.fn != fn || b.rhs.fn != fn {
-		return nil, errors.Errorf("cannot add operation %s to function %q, because operands are from different functions (%q and %q)",
-			op, fn.Name, b.lhs.fn.Name, b.rhs.fn.Name)
 	}
 	outputShape, err := shapeinference.DotGeneral(
 		b.lhs.shape, b.lhsContractingAxes, b.lhsBatchAxes,
@@ -368,7 +364,7 @@ func (b *DotGeneralBuilder) Done() (*Value, error) {
 	if err != nil {
 		return nil, err
 	}
-	stmt := b.fn.addOp(op, outputShape, b.lhs, b.rhs)
+	stmt := fn.addOp(op, outputShape, b.lhs, b.rhs)
 	stmt.Attributes = map[string]any{
 		"dot_dimension_numbers": literalStrF(
 			"#stablehlo.dot<\n"+
@@ -520,14 +516,13 @@ func Gather(operand, startIndices *Value, indexVectorAxis int,
 	startIndicesBatchingAxes, startIndexMap,
 	sliceSizes []int, indicesAreSorted bool) (*Value, error) {
 	op := optypes.Gather
-	fn := operand.fn
+	fn, err := innerMostFunction(operand, startIndices)
+	if err != nil {
+		return nil, err
+	}
 	if fn.Returned {
 		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
 			op, fn.Name)
-	}
-	if startIndices.fn != fn {
-		return nil, errors.Errorf("cannot add operation %s to function %q, because startIndices is from different function (%q and %q)",
-			op, fn.Name, startIndices.fn.Name, fn.Name)
 	}
 
 	outputShape, err := shapeinference.Gather(
@@ -638,18 +633,13 @@ func Sort(comparatorFn *Function, dimension int, isStable bool, inputs ...*Value
 	if len(inputs) == 0 {
 		return nil, errors.New("Sort requires at least one input tensor")
 	}
-	fn := inputs[0].fn
+	fn, err := innerMostFunction(inputs...)
+	if err != nil {
+		return nil, err
+	}
 	if fn.Returned {
 		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
 			op, fn.Name)
-	}
-
-	// Validate all inputs are from the same function
-	for i, input := range inputs {
-		if input.fn != fn {
-			return nil, errors.Errorf("cannot add operation %s to function %q, because input #%d is from different function (%q and %q)",
-				op, fn.Name, i, input.fn.Name, fn.Name)
-		}
 	}
 
 	// Validate comparator function is a closure of the current function
@@ -692,16 +682,13 @@ func Concatenate(axis int, operands ...*Value) (*Value, error) {
 	if len(operands) == 0 {
 		return nil, errors.New("Concatenate requires at least one operand")
 	}
-	fn := operands[0].fn
+	fn, err := innerMostFunction(operands...)
+	if err != nil {
+		return nil, err
+	}
 	if fn.Returned {
 		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
 			op, fn.Name)
-	}
-	for i, operand := range operands {
-		if operand.fn != fn {
-			return nil, errors.Errorf("cannot add operation %s to function %q, because operand #%d is from different function (%q and %q)",
-				op, fn.Name, i, operand.fn.Name, fn.Name)
-		}
 	}
 	operandsShapes := make([]shapes.Shape, len(operands))
 	for i, operand := range operands {
@@ -765,22 +752,16 @@ func MultiReduce(inputs, initialValues []*Value, reductionFn *Function, axes ...
 	if len(inputs) == 0 {
 		return nil, errors.New("MultiReduce requires at least one operand")
 	}
-	fn := inputs[0].fn
+	allOperands := make([]*Value, 0, len(inputs)+len(initialValues))
+	allOperands = append(allOperands, inputs...)
+	allOperands = append(allOperands, initialValues...)
+	fn, err := innerMostFunction(allOperands...)
+	if err != nil {
+		return nil, err
+	}
 	if fn.Returned {
 		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
 			op, fn.Name)
-	}
-	for i, operand := range inputs {
-		if operand.fn != fn {
-			return nil, errors.Errorf("cannot add operation %s to function %q, because input #%d is from different function (%q and %q)",
-				op, fn.Name, i, operand.fn.Name, fn.Name)
-		}
-	}
-	for i, operand := range initialValues {
-		if operand.fn != fn {
-			return nil, errors.Errorf("cannot add operation %s to function %q, because initialValues[%d] is from different function (%q and %q)",
-				op, fn.Name, i, operand.fn.Name, fn.Name)
-		}
 	}
 	if reductionFn.Parent != fn {
 		return nil, errors.Errorf("cannot add operation %s because reductionFn is not a StableHLO closure of %s",
@@ -809,14 +790,13 @@ func MultiReduce(inputs, initialValues []*Value, reductionFn *Function, axes ...
 // isTrue and isFalse must have the same shape and dtypes.
 func Select(pred, onTrue, onFalse *Value) (*Value, error) {
 	op := optypes.Select
-	fn := pred.fn
+	fn, err := innerMostFunction(pred, onTrue, onFalse)
+	if err != nil {
+		return nil, err
+	}
 	if fn.Returned {
 		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
 			op, fn.Name)
-	}
-	if onTrue.fn != fn || onFalse.fn != fn {
-		return nil, errors.Errorf("cannot add operation %s to function %q, because operands are from different functions (%q, %q and %q)",
-			op, fn.Name, fn.Name, onTrue.fn.Name, onFalse.fn.Name)
 	}
 	outputShape, err := shapeinference.Select(pred.shape, onTrue.shape, onFalse.shape)
 	if err != nil {
@@ -973,26 +953,17 @@ func MultiScatter(inputs []*Value, scatterIndices *Value, updates []*Value,
 		return nil, errors.Errorf("MultiScatter requires the same number of inputs and updates, got %d inputs and %d updates",
 			len(inputs), len(updates))
 	}
-	fn := inputs[0].fn
+	allOperands := make([]*Value, 0, len(inputs)+len(updates)+1)
+	allOperands = append(allOperands, inputs...)
+	allOperands = append(allOperands, updates...)
+	allOperands = append(allOperands, scatterIndices)
+	fn, err := innerMostFunction(allOperands...)
+	if err != nil {
+		return nil, err
+	}
 	if fn.Returned {
 		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
 			op, fn.Name)
-	}
-	for i, input := range inputs {
-		if input.fn != fn {
-			return nil, errors.Errorf("cannot add operation %s to function %q, because inputs[%d] is from different function (%q and %q)",
-				op, fn.Name, i, input.fn.Name, fn.Name)
-		}
-	}
-	for i, update := range updates {
-		if update.fn != fn {
-			return nil, errors.Errorf("cannot add operation %s to function %q, because updates[%d] is from different function (%q and %q)",
-				op, fn.Name, i, update.fn.Name, fn.Name)
-		}
-	}
-	if scatterIndices.fn != fn {
-		return nil, errors.Errorf("cannot add operation %s to function %q, because scatterIndices is from different function (%q and %q)",
-			op, fn.Name, scatterIndices.fn.Name, fn.Name)
 	}
 	if updateComputationFn.Parent != fn {
 		return nil, errors.Errorf("cannot add operation %s because updateComputationFn is not a StableHLO closure of %q",
@@ -1081,14 +1052,13 @@ func Convert(x *Value, dtype dtypes.DType) (*Value, error) {
 //	output.Dimensions[i] = paddingStart[i] + x.Dimensions[i] + max((x.Dimensions[i]-1), 0)*paddingInterior[i] + paddingEnd[i]
 func Pad(x, fill *Value, paddingStart, paddingEnd, paddingInterior []int) (*Value, error) {
 	op := optypes.Pad
-	fn := x.fn
+	fn, err := innerMostFunction(x, fill)
+	if err != nil {
+		return nil, err
+	}
 	if fn.Returned {
 		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
 			op, fn.Name)
-	}
-	if fill.fn != fn {
-		return nil, errors.Errorf("cannot add operation %s to function %q, because fill value is from different function (%q and %q)",
-			op, fn.Name, fill.fn.Name, fn.Name)
 	}
 
 	// Set default values for parameters.
@@ -1128,7 +1098,10 @@ func Convolution(input, kernel *Value,
 	channelGroupCount, batchGroupCount int,
 	inputPrecision, kernelPrecision types.DotGeneralPrecisionType) (*Value, error) {
 	op := optypes.Convolution
-	fn := input.fn
+	fn, err := innerMostFunction(input, kernel)
+	if err != nil {
+		return nil, err
+	}
 	if fn.Returned {
 		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
 			op, fn.Name)
@@ -1360,22 +1333,16 @@ func MultiReduceWindow(inputs, initialValues []*Value, reductionFn *Function,
 	if len(inputs) == 0 {
 		return nil, errors.New("MultiReduce requires at least one input")
 	}
-	fn := inputs[0].fn
+	allOperands := make([]*Value, 0, len(inputs)+len(initialValues))
+	allOperands = append(allOperands, inputs...)
+	allOperands = append(allOperands, initialValues...)
+	fn, err := innerMostFunction(allOperands...)
+	if err != nil {
+		return nil, err
+	}
 	if fn.Returned {
 		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
 			op, fn.Name)
-	}
-	for i, operand := range inputs {
-		if operand.fn != fn {
-			return nil, errors.Errorf("cannot add operation %s to function %q, because inputs[%d] is from different function (%q and %q)",
-				op, fn.Name, i, operand.fn.Name, fn.Name)
-		}
-	}
-	for i, operand := range initialValues {
-		if operand.fn != fn {
-			return nil, errors.Errorf("cannot add operation %s to function %q, because initialValues[%d] is from different function (%q and %q)",
-				op, fn.Name, i, operand.fn.Name, fn.Name)
-		}
 	}
 	if reductionFn.Parent != fn {
 		return nil, errors.Errorf("cannot add operation %s because reductionFn is not a StableHLO closure for function %q",
@@ -1441,18 +1408,13 @@ func SelectAndScatter(input, scatterSource, initialValue *Value,
 	selectFn, scatterFn *Function,
 	windowDimensions, strides []int, paddings [][2]int) (*Value, error) {
 	op := optypes.SelectAndScatter
-	fn := input.fn
+	fn, err := innerMostFunction(input, scatterSource, initialValue)
+	if err != nil {
+		return nil, err
+	}
 	if fn.Returned {
 		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
 			op, fn.Name)
-	}
-	if scatterSource.fn != fn {
-		return nil, errors.Errorf("cannot add operation %s to function %q, because input and scatterSource are from different function (%q and %q)",
-			op, fn.Name, fn.Name, scatterSource.fn.Name)
-	}
-	if initialValue.fn != fn {
-		return nil, errors.Errorf("cannot add operation %s to function %q, because input and initialValue are from different function (%q and %q)",
-			op, fn.Name, fn.Name, initialValue.fn.Name)
 	}
 
 	// Initialize default values for parameters.
@@ -1514,16 +1476,16 @@ func SelectAndScatter(input, scatterSource, initialValue *Value,
 //	adjustedStartIndices[i] = clamp(0, StartIndices[i], operand.Dimensions[i] - sliceSizes[i])
 func DynamicSlice(operand *Value, startIndices []*Value, sliceSizes []int) (*Value, error) {
 	op := optypes.DynamicSlice
-	fn := operand.fn
+	allOperands := make([]*Value, 0, 1+len(startIndices))
+	allOperands = append(allOperands, operand)
+	allOperands = append(allOperands, startIndices...)
+	fn, err := innerMostFunction(allOperands...)
+	if err != nil {
+		return nil, err
+	}
 	if fn.Returned {
 		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
 			op, fn.Name)
-	}
-	for axis, idx := range startIndices {
-		if idx.fn != fn {
-			return nil, errors.Errorf("cannot add operation %s to function %q, because operand and startIndices[%d] are from different function (%q and %q)",
-				op, fn.Name, axis, fn.Name, idx.fn.Name)
-		}
 	}
 	outputShape := operand.shape.Clone()
 	copy(outputShape.Dimensions, sliceSizes)
@@ -1546,20 +1508,16 @@ func DynamicSlice(operand *Value, startIndices []*Value, sliceSizes []int) (*Val
 //	adjustedStartIndices[i] = clamp(0, StartIndices[i], operand.Dimensions[i] - update.Dimensions[i])
 func DynamicUpdateSlice(operand, update *Value, startIndices []*Value) (*Value, error) {
 	op := optypes.DynamicUpdateSlice
-	fn := operand.fn
+	allOperands := make([]*Value, 0, 2+len(startIndices))
+	allOperands = append(allOperands, operand, update)
+	allOperands = append(allOperands, startIndices...)
+	fn, err := innerMostFunction(allOperands...)
+	if err != nil {
+		return nil, err
+	}
 	if fn.Returned {
 		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
 			op, fn.Name)
-	}
-	if update.fn != fn {
-		return nil, errors.Errorf("cannot add operation %s to function %q, because operand and update are from different function (%q and %q)",
-			op, fn.Name, fn.Name, update.fn.Name)
-	}
-	for axis, idx := range startIndices {
-		if idx.fn != fn {
-			return nil, errors.Errorf("cannot add operation %s to function %q, because operand and startIndices[%d] are from different function (%q and %q)",
-				op, fn.Name, axis, fn.Name, idx.fn.Name)
-		}
 	}
 	outputShape := operand.shape.Clone()
 	stmt := fn.addOp(op, outputShape, append([]*Value{operand, update}, startIndices...)...)
@@ -1573,13 +1531,12 @@ func DynamicUpdateSlice(operand, update *Value, startIndices []*Value) (*Value, 
 // Internal Covariate Shift" (Sergey Ioffe, Christian Szegedy), https://arxiv.org/abs/1502.03167.
 func BatchNormInference(operand, scale, offset, mean, variance *Value, epsilon float32, featureAxis int) (*Value, error) {
 	op := optypes.BatchNormInference
-	fn := operand.fn
+	fn, err := innerMostFunction(operand, scale, offset, mean, variance)
+	if err != nil {
+		return nil, err
+	}
 	if fn.Returned {
 		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
-			op, fn.Name)
-	}
-	if scale.fn != fn || offset.fn != fn || mean.fn != fn || variance.fn != fn {
-		return nil, errors.Errorf("cannot add operation %s to function %q, because operands are from different functions",
 			op, fn.Name)
 	}
 
@@ -1611,13 +1568,12 @@ func BatchNormInference(operand, scale, offset, mean, variance *Value, epsilon f
 // Internal Covariate Shift" (Sergey Ioffe, Christian Szegedy), https://arxiv.org/abs/1502.03167.
 func BatchNormTraining(operand, scale, offset *Value, epsilon float32, featureAxis int) (normalized *Value, batchMean *Value, batchVariance *Value, err error) {
 	op := optypes.BatchNormTraining
-	fn := operand.fn
+	fn, err := innerMostFunction(operand, scale, offset)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	if fn.Returned {
 		return nil, nil, nil, errors.Errorf("cannot add operation %s after returning, in function %q",
-			op, fn.Name)
-	}
-	if scale.fn != fn || offset.fn != fn {
-		return nil, nil, nil, errors.Errorf("cannot add operation %s to function %q, because operands are from different functions",
 			op, fn.Name)
 	}
 
@@ -1656,13 +1612,12 @@ func BatchNormTraining(operand, scale, offset *Value, epsilon float32, featureAx
 // Internal Covariate Shift" (Sergey Ioffe, Christian Szegedy), https://arxiv.org/abs/1502.03167.
 func BatchNormGradient(operand, scale, mean, variance, gradOutput *Value, epsilon float32, featureAxis int) (gradOperand *Value, gradScale *Value, gradOffset *Value, err error) {
 	op := optypes.BatchNormGrad
-	fn := operand.fn
+	fn, err := innerMostFunction(operand, scale, mean, variance, gradOutput)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	if fn.Returned {
 		return nil, nil, nil, errors.Errorf("cannot add operation %s after returning, in function %q",
-			op, fn.Name)
-	}
-	if scale.fn != fn || mean.fn != fn || variance.fn != fn || gradOutput.fn != fn {
-		return nil, nil, nil, errors.Errorf("cannot add operation %s to function %q, because operands are from different functions",
 			op, fn.Name)
 	}
 
@@ -1807,18 +1762,13 @@ func While(condFn, bodyFn *Function, initialStates ...*Value) ([]*Value, error) 
 	if len(initialStates) == 0 {
 		return nil, errors.New("While requires at least one initial state value")
 	}
-	fn := initialStates[0].fn
+	fn, err := innerMostFunction(initialStates...)
+	if err != nil {
+		return nil, err
+	}
 	if fn.Returned {
 		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
 			op, fn.Name)
-	}
-
-	// Validate all initial states are from the same function
-	for i, state := range initialStates {
-		if state.fn != fn {
-			return nil, errors.Errorf("cannot add operation %s to function %q, because initialStates[%d] is from different function (%q and %q)",
-				op, fn.Name, i, state.fn.Name, fn.Name)
-		}
 	}
 
 	// Validate closure functions are children of the current function
@@ -1933,29 +1883,13 @@ func Call(callee *Function, operands ...*Value) ([]*Value, error) {
 		return nil, errors.New("Call requires at least one operand to determine the calling function context")
 	}
 
-	fn := operands[0].fn
+	fn, err := innerMostFunction(operands...)
+	if err != nil {
+		return nil, err
+	}
 	if fn.Returned {
 		return nil, errors.Errorf("cannot add operation %s after returning, in function %q",
 			op, fn.Name)
-	}
-
-	// Validate callee is a top-level function (not a closure)
-	if callee.Parent != nil {
-		return nil, errors.Errorf("Call callee must be a top-level function, not a closure (has parent %q)",
-			callee.Parent.Name)
-	}
-
-	// Validate callee has been returned (function body complete)
-	if !callee.Returned {
-		return nil, errors.Errorf("Call callee %q must have Return() called before it can be called", callee.Name)
-	}
-
-	// Validate all operands are from the same function
-	for i, operand := range operands {
-		if operand.fn != fn {
-			return nil, errors.Errorf("cannot add operation %s because operand[%d] is from a different function (%s) than operand[0] (%s)",
-				op, i, operand.fn.Name, fn.Name)
-		}
 	}
 
 	// Perform shape inference
