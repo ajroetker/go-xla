@@ -42,7 +42,7 @@ func TestBenchCGO(t *testing.T) {
 	plugin := must1(GetPlugin(*FlagPluginName))
 	const repeats = 1000
 	repeatedCGO := func() {
-		for _ = range repeats {
+		for range repeats {
 			dummyCGO(unsafe.Pointer(plugin.api))
 		}
 	}
@@ -76,7 +76,7 @@ func TestBenchArena(t *testing.T) {
 			switch allocType {
 			case "arena":
 				fn = func() {
-					for _ = range repeats {
+					for range repeats {
 						arena := newArena(1024)
 						for idx := range numAllocations {
 							allocations[idx] = arenaAlloc[int](arena)
@@ -87,7 +87,7 @@ func TestBenchArena(t *testing.T) {
 				}
 			case "arenaPool":
 				fn = func() {
-					for _ = range repeats {
+					for range repeats {
 						arena := plugin.getDefaultArena()
 						for idx := range numAllocations {
 							allocations[idx] = arenaAlloc[int](arena)
@@ -98,7 +98,7 @@ func TestBenchArena(t *testing.T) {
 				}
 			case "malloc":
 				fn = func() {
-					for _ = range repeats {
+					for range repeats {
 						for idx := range numAllocations {
 							allocations[idx] = cMalloc[int]()
 						}
@@ -110,7 +110,7 @@ func TestBenchArena(t *testing.T) {
 				}
 			case "go+pinner":
 				fn = func() {
-					for _ = range repeats {
+					for range repeats {
 						var pinner runtime.Pinner
 						for idx := range numAllocations {
 							v := idx
@@ -156,7 +156,7 @@ func TestBenchBufferFromHost(t *testing.T) {
 		}
 		testFns[shapeIdx].Name = fmt.Sprintf("%s/shape=%s", t.Name(), s)
 		testFns[shapeIdx].Func = func() {
-			for _ = range repeats {
+			for range repeats {
 				x := inputData[shapeIdx]
 				s := testShapes[shapeIdx]
 				buf := must1(ArrayToBuffer(client, x, s.Dimensions...))
@@ -205,7 +205,7 @@ func TestBenchBufferToHost(t *testing.T) {
 		buffers[shapeIdx] = must1(ArrayToBuffer(client, outputData[shapeIdx], s.Dimensions...))
 		testFns[shapeIdx].Name = fmt.Sprintf("%s/shape=%s", t.Name(), s)
 		testFns[shapeIdx].Func = func() {
-			for _ = range repeats {
+			for range repeats {
 				buf := buffers[shapeIdx]
 				rawData := unsafe.Slice((*byte)(unsafe.Pointer(&outputData[shapeIdx][0])), len(outputData[shapeIdx])*int(unsafe.Sizeof(outputData[shapeIdx][0])))
 				must(buf.ToHost(rawData))
@@ -262,7 +262,7 @@ func TestBenchAdd1Execution(t *testing.T) {
 		execs[shapeIdx] = must1(client.Compile().WithStableHLO(compBytes).Done())
 		testFns[shapeIdx].Name = fmt.Sprintf("%s/shape=%s", t.Name(), s)
 		testFns[shapeIdx].Func = func() {
-			for _ = range repeats {
+			for range repeats {
 				buf := buffers[shapeIdx]
 				exec := execs[shapeIdx]
 				output := must1(exec.Execute(buf).Done())[0]
@@ -335,7 +335,7 @@ func TestBenchAdd1Div2Execution(t *testing.T) {
 		execs[shapeIdx] = must1(client.Compile().WithStableHLO(compBytes).Done())
 		testFns[shapeIdx].Name = fmt.Sprintf("%s/shape=%s", t.Name(), s)
 		testFns[shapeIdx].Func = func() {
-			for _ = range repeats {
+			for range repeats {
 				buf := buffers[shapeIdx]
 				exec := execs[shapeIdx]
 				output := must1(exec.Execute(buf).Done())[0]
@@ -418,7 +418,7 @@ func TestBenchMeanNormalizedExecution(t *testing.T) {
 		execs[shapeIdx] = must1(client.Compile().WithStableHLO(compBytes).Done())
 		testFns[shapeIdx].Name = fmt.Sprintf("%s/shape=%s", t.Name(), s)
 		testFns[shapeIdx].Func = func() {
-			for _ = range repeats {
+			for range repeats {
 				buf := buffers[shapeIdx]
 				exec := execs[shapeIdx]
 				output := must1(exec.Execute(buf).Done())[0]
