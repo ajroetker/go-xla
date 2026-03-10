@@ -41,10 +41,31 @@ jobs:
         with:
           go-version: "1.25.x"
 
+      - name: "Diagnostic: Check CPU Features"
+        run: |
+          echo "Checking CPU for AVX-512 support..."
+          powershell -Command "Get-CimInstance Win32_Processor | Select-Object -ExpandProperty Caption"
+          # Check for AVX-512 explicitly via PowerShell
+          powershell -Command "if ((Get-WmiObject Win32_Processor).Caption -match 'AVX512') { echo 'AVX-512 Detected' } else { echo 'AVX-512 NOT supported' }"
+
       - name: Test with AutoInstall CPU PJRT plugin
         run: |
           go test ./internal/tests/ -test.run=TestEndToEnd/fixed -test.v -test.count=1
           go test ./internal/tests/ -test.run=TestEndToEnd/fixed -test.v -test.count=1
+
+      - name: "Diagnostic: Debug DLL Imports"
+        if: failure()
+        run: |
+          # Find where the DLL was installed (usually ~/AppData/Local/go-xla)
+          DLL_PATH="${HOME}/AppData/Local/go-xla/pjrt_c_api_cpu_plugin.dll"
+          if [ -f "$DLL_PATH" ]; then
+            echo "Analyzing $DLL_PATH"
+            # Use dumpbin (available on windows-latest) to see what DLLs are missing
+            # If any DLL says "NOT FOUND", that is your culprit.
+            dumpbin /DEPENDENTS "$DLL_PATH"
+          else
+            echo "DLL not found at $DLL_PATH"
+          fi
 
       - name: Install PJRT plugin
         run: |
