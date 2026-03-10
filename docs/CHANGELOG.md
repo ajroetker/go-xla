@@ -1,6 +1,7 @@
 # Next: Dynamic Shapes (thx @ajroetker); added `Call()`; Quantized shapes;
 
 - `go.mod`: updated to Go 1.25: needed for `synctest`.
+- Fixed sub-byte types Int4, Int2, Uint4, Uint2 to assume packed storage; Added byte (`Uint8`) to `Int4` bitcast test.
 
 ## StableHLO
 
@@ -23,6 +24,7 @@
 - Added `Client.IsCUDA()` method.
 - Installation: 
   - prevent race condition of concurrent (auto-)installations (using flock, so it works cross-processes).
+- Bumped XLA's `pjrt_c_api.h` to version 0.98
 
 # v0.1.4
 
