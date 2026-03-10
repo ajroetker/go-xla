@@ -1,6 +1,7 @@
 # Next: Dynamic Shapes (thx @ajroetker); added `Call()`; Quantized shapes;
 
 - `go.mod`: updated to Go 1.25: needed for `synctest`.
+- Fixed sub-byte types Int4, Int2, Uint4, Uint2 to assume packed storage; Added byte (`Uint8`) to `Int4` bitcast test.
 
 ## StableHLO
 
