@@ -39,12 +39,33 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25.x"
+          go-version: "1.26.x"
+
+      - name: Diagnostic: Check CPU Features
+        run: |
+          # Check if the runner CPU actually supports AVX-512
+          # If this returns nothing, the AVX-512 kernels will crash during DLL init
+          wmic cpu get caption, name, numberofcores
+          powershell -Command "Get-CimInstance Win32_Processor | Select-Object -ExpandProperty Caption"
 
       - name: Test with AutoInstall CPU PJRT plugin
         run: |
           go test ./internal/tests/ -test.run=TestEndToEnd/fixed -test.v -test.count=1
           go test ./internal/tests/ -test.run=TestEndToEnd/fixed -test.v -test.count=1
+
+      - name: Diagnostic: Debug DLL Imports
+        if: failure()
+        run: |
+          # Find where the DLL was installed (usually ~/AppData/Local/go-xla)
+          DLL_PATH="${HOME}/AppData/Local/go-xla/pjrt_c_api_cpu_plugin.dll"
+          if [ -f "$DLL_PATH" ]; then
+            echo "Analyzing $DLL_PATH"
+            # Use dumpbin (available on windows-latest) to see what DLLs are missing
+            # If any DLL says "NOT FOUND", that is your culprit.
+            dumpbin /DEPENDENTS "$DLL_PATH"
+          else
+            echo "DLL not found at $DLL_PATH"
+          fi
 
       - name: Install PJRT plugin
         run: |
