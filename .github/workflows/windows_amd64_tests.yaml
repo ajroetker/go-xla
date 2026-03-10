@@ -43,10 +43,10 @@ jobs:
 
       - name: "Diagnostic: Check CPU Features"
         run: |
-          # Check if the runner CPU actually supports AVX-512
-          # If this returns nothing, the AVX-512 kernels will crash during DLL init
-          wmic cpu get caption, name, numberofcores
+          echo "Checking CPU for AVX-512 support..."
           powershell -Command "Get-CimInstance Win32_Processor | Select-Object -ExpandProperty Caption"
+          # Check for AVX-512 explicitly via PowerShell
+          powershell -Command "if ((Get-WmiObject Win32_Processor).Caption -match 'AVX512') { echo 'AVX-512 Detected' } else { echo 'AVX-512 NOT supported' }"
 
       - name: Test with AutoInstall CPU PJRT plugin
         run: |
