@@ -49,6 +49,15 @@ func (v *Value) String() string {
 	return "%" + v.name
 }
 
+// OpName returns the name of the operation that created this value.
+func (v *Value) OpName() string {
+	if v.stmt == nil {
+		return "nil"
+	}
+	return v.stmt.OpType.String()
+}
+
+
 // ConvertToValidName replaces any characters not in { "0"-"9", "a"-"z", "A-Z", "_" } to a "_",
 // making it a valid name for values and function arguments.
 func ConvertToValidName(name string) string {
