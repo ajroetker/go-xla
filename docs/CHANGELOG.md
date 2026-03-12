@@ -1,4 +1,4 @@
-# Next: Dynamic Shapes (thx @ajroetker); added `Call()`; Quantized shapes;
+# v0.2.0: Dynamic Shapes (thx @ajroetker); added `Call()`; Quantized shapes;
 
 - `go.mod`: updated to Go 1.25: needed for `synctest`.
 - Fixed sub-byte types Int4, Int2, Uint4, Uint2 to assume packed storage; Added byte (`Uint8`) to `Int4` bitcast test.
@@ -21,7 +21,7 @@
 
 ## PJRT
 
-- Updated `DefaultCPUVersion` to "v0.83.4" (`pjrt-cpu-binaries` version)
+- Updated `DefaultCPUVersion` to "v0.98.0" (`pjrt-cpu-binaries` version)
 - Added `Client.IsCUDA()` method.
 - Installation: 
   - prevent race condition of concurrent (auto-)installations (using flock, so it works cross-processes).
