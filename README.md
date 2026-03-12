@@ -68,6 +68,15 @@ The package [`github.com/gomlx/go-xla/pkg/stablehlo`](https://pkg.go.dev/github.
 provides a Go API for writing StableHLO programs, including _shape inference_, needed to correctly 
 infer the output shape of operations as the program is being built.
 
+Hightlights:
+
+- _Shardy_ is supported, to allow for distributed computations.
+- Dynamic (or "polymorphic") shapes is supported: with the caveat that PJRT doesn't execute "dynamically shaped"
+  computations, it on-the-fly resolves and compiles to the shape of the input at runtime. So if the input is really
+  dynamic, it is horribly slow.
+- _Quantization_ is supported according to specification. Unfortunately, the default PJRT doesn't seem to support it (
+  so it can't be executed yet).
+
 ## 🗺️ How to use it?
 
 Use the `stablehlo` to define your computation. Then use `pjrt` to compile (once) and execute it.

@@ -6,5 +6,5 @@ import "github.com/gomlx/go-xla/internal/utils"
 // this go-xla release, against which it was tested.
 //
 // See:
-// https://github.com/gomlx/pjrt-cpu-binaries/releases/tag/v0.83.1
+// https://github.com/gomlx/pjrt-cpu-binaries/releases/tag/v0.98.0
 var DefaultCPUVersion = utils.DefaultCPUVersion
