@@ -1,9 +1,9 @@
-# Next
+# v0.2.2: New `OptimizationBarrier` op, `pjrt.IsCPU()`
 
-- Internal: fixed order of implemented ops in OpType enum.
 - StableHLO: added `OptimizationBarrier()` op.
 - For `Value.OpName()`: return "InputParameter" (`stablehlo.InputParameterName`) for input parameters instead of "nil".
 - Added pjrt.Plugin.IsCPU() method.
+- Internal: fixed order of implemented ops in OpType enum.
 
 # v0.2.1: CUDA plugin fixes
 
